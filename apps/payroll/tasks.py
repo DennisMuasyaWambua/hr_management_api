@@ -58,7 +58,7 @@ def process_payment_batch(self, batch_id: str):
                     raise ValueError("M-Pesa number not configured")
                 result = pesapal.send_mpesa(
                     phone=record.employee.mpesa_number,
-                    amount=float(record.net_pay),
+                    amount=float(record.net_salary),
                     reference=f"SAL-{record.id}"
                 )
             elif batch.payment_method == 'airtel':
@@ -66,7 +66,7 @@ def process_payment_batch(self, batch_id: str):
                     raise ValueError("Airtel number not configured")
                 result = pesapal.send_airtel(
                     phone=record.employee.airtel_number,
-                    amount=float(record.net_pay),
+                    amount=float(record.net_salary),
                     reference=f"SAL-{record.id}"
                 )
             else:  # bank
@@ -75,9 +75,9 @@ def process_payment_batch(self, batch_id: str):
                 result = pesapal.send_bank_eft(
                     bank_name=record.employee.bank_name or '',
                     account_number=record.employee.bank_account,
-                    amount=float(record.net_pay),
+                    amount=float(record.net_salary),
                     reference=f"SAL-{record.id}",
-                    account_name=record.employee.user.get_full_name()
+                    account_name=record.employee.job_title  # Using job_title as name placeholder
                 )
 
             if result.get('success'):
@@ -85,19 +85,17 @@ def process_payment_batch(self, batch_id: str):
                 record.payment_status = 'processing'
                 record.payment_reference = result.get('order_tracking_id') or result.get('reference')
                 successful += 1
-                successful_amount += record.net_pay
+                successful_amount += record.net_salary
             else:
                 record.payment_status = 'failed'
-                record.payment_error = result.get('error', 'Unknown error')
                 failed += 1
-                failed_amount += record.net_pay
+                failed_amount += record.net_salary
 
         except Exception as e:
             logger.exception(f"Payment failed for record {record.id}")
             record.payment_status = 'failed'
-            record.payment_error = str(e)
             failed += 1
-            failed_amount += record.net_pay
+            failed_amount += record.net_salary
 
         record.save()
 
@@ -161,7 +159,7 @@ def poll_payment_statuses(self, payroll_run_id: str):
                 if new_status != 'processing':
                     record.payment_status = new_status
                     if new_status == 'paid':
-                        record.payment_date = timezone.now()
+                        record.paid_at = timezone.now()
                     elif new_status == 'failed':
                         record.payment_error = status_result.get('message', 'Payment failed')
                     record.save()
@@ -215,10 +213,10 @@ def check_payroll_completion(payroll_run_id: str):
             batch.successful_count = batch_records.filter(payment_status='paid').count()
             batch.failed_count = batch_records.filter(payment_status='failed').count()
             batch.successful_amount = sum(
-                r.net_pay for r in batch_records.filter(payment_status='paid')
+                r.net_salary for r in batch_records.filter(payment_status='paid')
             )
             batch.failed_amount = sum(
-                r.net_pay for r in batch_records.filter(payment_status='failed')
+                r.net_salary for r in batch_records.filter(payment_status='failed')
             )
 
             if batch.failed_count == 0:
@@ -261,7 +259,7 @@ def process_ipn_callback(order_tracking_id: str, payment_status: str, confirmati
     with transaction.atomic():
         record.payment_status = new_status
         if new_status == 'paid':
-            record.payment_date = timezone.now()
+            record.paid_at = timezone.now()
             if confirmation_code:
                 record.payment_reference = f"{record.payment_reference}|{confirmation_code}"
         elif new_status == 'failed':

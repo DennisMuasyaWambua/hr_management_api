@@ -1,14 +1,14 @@
 from rest_framework import serializers
-from .models import PayrollRun, PayrollRecord, PaymentBatch, Employee, Company
+from .models import PayrollRun, PayrollRecord, PaymentBatch, EmployeeProfile, Company
 
 
 class EmployeePaymentSerializer(serializers.ModelSerializer):
     """Serializer for employee payment method updates"""
 
     class Meta:
-        model = Employee
+        model = EmployeeProfile
         fields = [
-            'payment_method', 'bank_name', 'bank_account', 'bank_branch',
+            'payment_method', 'bank_name', 'bank_account',
             'mpesa_number', 'airtel_number'
         ]
 
@@ -44,53 +44,73 @@ class CompanyPaymentConfigSerializer(serializers.ModelSerializer):
         ]
 
 
+class EmployeeProfileSerializer(serializers.ModelSerializer):
+    """Basic employee profile serializer"""
+
+    class Meta:
+        model = EmployeeProfile
+        fields = [
+            'id', 'employee_number', 'job_title', 'department',
+            'employment_type', 'employment_status', 'salary',
+            'payment_method', 'bank_name', 'bank_account',
+            'mpesa_number', 'airtel_number'
+        ]
+        read_only_fields = ['id', 'employee_number']
+
+
 class PayrollRecordSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(source='employee.user.get_full_name', read_only=True)
-    employee_number = serializers.CharField(source='employee.employee_number', read_only=True)
+    """Serializer for payroll records matching Supabase schema"""
+    employee_number = serializers.CharField(
+        source='employee.employee_number', read_only=True
+    )
+    employee_name = serializers.CharField(
+        source='employee.job_title', read_only=True
+    )
+    total_deductions = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = PayrollRecord
         fields = [
-            'id', 'employee', 'employee_name', 'employee_number',
-            'basic_salary', 'allowances', 'overtime', 'bonus', 'gross_pay',
-            'nssf_employee', 'nssf_employer', 'nhif', 'paye',
-            'housing_levy_employee', 'housing_levy_employer', 'helb',
-            'other_deductions', 'total_deductions', 'net_pay',
-            'payment_status', 'payment_method', 'payment_reference', 'payment_date'
+            'id', 'employee', 'employee_number', 'employee_name',
+            'gross_salary', 'paye', 'nssf', 'nhif', 'helb',
+            'other_deductions', 'total_deductions', 'net_salary',
+            'payment_method', 'payment_status', 'payment_reference', 'paid_at'
         ]
-        read_only_fields = ['id', 'employee_name', 'employee_number']
+        read_only_fields = ['id', 'employee_number', 'employee_name', 'total_deductions']
 
 
 class PayrollRunListSerializer(serializers.ModelSerializer):
     """List view serializer with summary info"""
+    period_display = serializers.CharField(read_only=True)
+    record_count = serializers.SerializerMethodField()
 
     class Meta:
         model = PayrollRun
         fields = [
-            'id', 'period_start', 'period_end', 'pay_date', 'status',
-            'total_gross', 'total_net', 'employee_count',
-            'created_at', 'approved_at'
+            'id', 'period_month', 'period_year', 'period_display',
+            'status', 'total_gross', 'total_deductions', 'total_net',
+            'record_count', 'created_at', 'completed_at'
         ]
+
+    def get_record_count(self, obj):
+        return obj.records.count()
 
 
 class PayrollRunDetailSerializer(serializers.ModelSerializer):
     """Detail view serializer with full breakdown"""
     records = PayrollRecordSerializer(many=True, read_only=True)
-    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
-    approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
+    period_display = serializers.CharField(read_only=True)
 
     class Meta:
         model = PayrollRun
         fields = [
-            'id', 'period_start', 'period_end', 'pay_date', 'status',
-            'total_gross', 'total_net', 'total_paye', 'total_nssf',
-            'total_nhif', 'total_housing_levy', 'total_helb',
-            'employee_count', 'notes',
-            'created_by', 'created_by_name', 'created_at',
-            'approved_by', 'approved_by_name', 'approved_at',
-            'records'
+            'id', 'period_month', 'period_year', 'period_display',
+            'status', 'total_gross', 'total_deductions', 'total_net',
+            'run_by', 'created_at', 'completed_at', 'records'
         ]
-        read_only_fields = ['id', 'created_by', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class PayrollRunCreateSerializer(serializers.ModelSerializer):
@@ -98,26 +118,34 @@ class PayrollRunCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PayrollRun
-        fields = ['period_start', 'period_end', 'pay_date', 'notes']
+        fields = ['period_month', 'period_year']
+
+    def validate_period_month(self, value):
+        if not 1 <= value <= 12:
+            raise serializers.ValidationError("Month must be between 1 and 12")
+        return value
+
+    def validate_period_year(self, value):
+        if value < 2000 or value > 2100:
+            raise serializers.ValidationError("Year must be between 2000 and 2100")
+        return value
 
     def validate(self, data):
-        # Check for overlapping payroll runs
+        # Check for existing payroll run for same period
         request = self.context.get('request')
-        if request and hasattr(request.user, 'tenant_id'):
-            tenant_id = request.user.tenant_id
-            company_id = self.context.get('company_id')
+        company_id = self.context.get('company_id')
 
-            overlapping = PayrollRun.objects.filter(
-                tenant_id=tenant_id,
+        if company_id:
+            existing = PayrollRun.objects.filter(
                 company_id=company_id,
-                is_deleted=False,
-                period_start__lte=data['period_end'],
-                period_end__gte=data['period_start']
+                period_month=data['period_month'],
+                period_year=data['period_year'],
+                is_deleted=False
             ).exists()
 
-            if overlapping:
+            if existing:
                 raise serializers.ValidationError(
-                    "A payroll run already exists for this period"
+                    f"A payroll run already exists for {data['period_month']}/{data['period_year']}"
                 )
 
         return data
@@ -145,4 +173,13 @@ class DisbursePayrollSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=['bank', 'mpesa', 'airtel']),
         required=False,
         help_text="Filter by payment methods. If empty, processes all methods."
+    )
+
+
+class PayrollCalculateSerializer(serializers.Serializer):
+    """Request to calculate payroll for employees"""
+    employee_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Specific employee IDs. If empty, includes all active employees."
     )

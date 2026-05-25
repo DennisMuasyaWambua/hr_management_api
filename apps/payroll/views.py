@@ -9,7 +9,7 @@ from django.utils.decorators import method_decorator
 from decimal import Decimal
 import logging
 
-from .models import PayrollRun, PayrollRecord, PaymentBatch, Employee, Company
+from .models import PayrollRun, PayrollRecord, PaymentBatch, EmployeeProfile, Company
 from .serializers import (
     PayrollRunListSerializer, PayrollRunDetailSerializer,
     PayrollRunCreateSerializer, PayrollRecordSerializer,
@@ -35,7 +35,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
         return PayrollRun.objects.filter(
             tenant_id=self.request.user.tenant_id,
             is_deleted=False
-        ).select_related('created_by', 'approved_by')
+        )
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -54,15 +54,15 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
         serializer.save(
             tenant_id=self.request.user.tenant_id,
             company_id=self.request.user.company_id,
-            created_by=self.request.user,
+            run_by=self.request.user.id,
             status='draft'
         )
 
     @action(detail=True, methods=['post'])
     def calculate(self, request, pk=None):
         """
-        Calculate payroll for all active employees
-        Generates PayrollRecord for each employee with tax calculations
+        Calculate payroll for all active employees.
+        Generates PayrollRecord for each employee with tax calculations.
         """
         payroll_run = self.get_object()
 
@@ -73,10 +73,10 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             )
 
         # Get active employees
-        employees = Employee.objects.filter(
+        employees = EmployeeProfile.objects.filter(
             tenant_id=request.user.tenant_id,
             company_id=payroll_run.company_id,
-            status='active',
+            employment_status='active',
             is_deleted=False
         )
 
@@ -89,62 +89,54 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             records = []
             totals = {
                 'gross': Decimal('0'),
+                'deductions': Decimal('0'),
                 'net': Decimal('0'),
-                'paye': Decimal('0'),
-                'nssf': Decimal('0'),
-                'nhif': Decimal('0'),
-                'housing_levy': Decimal('0'),
-                'helb': Decimal('0'),
             }
 
             for employee in employees:
                 # Calculate deductions
                 calcs = calculator.calculate_all(
                     gross_pay=employee.salary,
-                    helb_deduction=employee.helb_deduction or Decimal('0')
+                    helb_deduction=Decimal('0')  # Can be extended
                 )
+
+                # Map to Supabase schema fields
+                paye = calcs['paye']
+                nssf = calcs['nssf_employee']
+                nhif = calcs['nhif']
+                helb = calcs['helb']
+                other_deductions = Decimal('0')
+                total_deductions = paye + nssf + nhif + helb + other_deductions
+                net_salary = employee.salary - total_deductions
 
                 record = PayrollRecord(
                     tenant_id=request.user.tenant_id,
                     payroll_run=payroll_run,
                     employee=employee,
-                    basic_salary=employee.salary,
-                    gross_pay=calcs['gross_pay'],
-                    nssf_employee=calcs['nssf_employee'],
-                    nssf_employer=calcs['nssf_employer'],
-                    nhif=calcs['nhif'],
-                    paye=calcs['paye'],
-                    housing_levy_employee=calcs['housing_levy_employee'],
-                    housing_levy_employer=calcs['housing_levy_employer'],
-                    helb=calcs['helb'],
-                    total_deductions=calcs['total_deductions'],
-                    net_pay=calcs['net_pay'],
+                    gross_salary=employee.salary,
+                    paye=paye,
+                    nssf=nssf,
+                    nhif=nhif,
+                    helb=helb,
+                    other_deductions=other_deductions,
+                    net_salary=net_salary,
                     payment_method=employee.payment_method,
                     payment_status='pending'
                 )
                 records.append(record)
 
                 # Update totals
-                totals['gross'] += calcs['gross_pay']
-                totals['net'] += calcs['net_pay']
-                totals['paye'] += calcs['paye']
-                totals['nssf'] += calcs['nssf_employee']
-                totals['nhif'] += calcs['nhif']
-                totals['housing_levy'] += calcs['housing_levy_employee']
-                totals['helb'] += calcs['helb']
+                totals['gross'] += employee.salary
+                totals['deductions'] += total_deductions
+                totals['net'] += net_salary
 
             PayrollRecord.objects.bulk_create(records)
 
-            # Update payroll run
+            # Update payroll run totals
             payroll_run.status = 'calculated'
-            payroll_run.employee_count = len(records)
             payroll_run.total_gross = totals['gross']
+            payroll_run.total_deductions = totals['deductions']
             payroll_run.total_net = totals['net']
-            payroll_run.total_paye = totals['paye']
-            payroll_run.total_nssf = totals['nssf']
-            payroll_run.total_nhif = totals['nhif']
-            payroll_run.total_housing_levy = totals['housing_levy']
-            payroll_run.total_helb = totals['helb']
             payroll_run.save()
 
         return Response(PayrollRunDetailSerializer(payroll_run).data)
@@ -161,8 +153,6 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             )
 
         payroll_run.status = 'approved'
-        payroll_run.approved_by = request.user
-        payroll_run.approved_at = timezone.now()
         payroll_run.save()
 
         return Response(PayrollRunDetailSerializer(payroll_run).data)
@@ -170,8 +160,8 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def disburse(self, request, pk=None):
         """
-        Trigger salary disbursement
-        Creates payment batches and queues for async processing
+        Trigger salary disbursement.
+        Creates payment batches and queues for async processing.
         """
         payroll_run = self.get_object()
 
@@ -210,7 +200,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                     tenant_id=request.user.tenant_id,
                     payroll_run=payroll_run,
                     payment_method=method,
-                    total_amount=sum(r.net_pay for r in method_records),
+                    total_amount=sum(r.net_salary for r in method_records),
                     record_count=method_records.count(),
                     status='pending'
                 )
@@ -234,8 +224,9 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
         payroll_run = self.get_object()
         batches = payroll_run.payment_batches.all()
 
+        record_count = payroll_run.records.count()
         summary = {
-            'total_records': payroll_run.employee_count,
+            'total_records': record_count,
             'pending': payroll_run.records.filter(payment_status='pending').count(),
             'processing': payroll_run.records.filter(payment_status='processing').count(),
             'paid': payroll_run.records.filter(payment_status='paid').count(),
@@ -258,10 +249,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             return Response({'message': 'No failed payments to retry'})
 
         # Reset to pending
-        failed_records.update(
-            payment_status='pending',
-            payment_error=None
-        )
+        failed_records.update(payment_status='pending')
 
         # Re-trigger disbursement for these records
         return self.disburse(request, pk)
@@ -273,7 +261,7 @@ class EmployeePaymentViewSet(viewsets.GenericViewSet):
     serializer_class = EmployeePaymentSerializer
 
     def get_queryset(self):
-        return Employee.objects.filter(
+        return EmployeeProfile.objects.filter(
             tenant_id=self.request.user.tenant_id,
             is_deleted=False
         )
