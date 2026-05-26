@@ -14,7 +14,8 @@ from .serializers import (
     PayrollRunListSerializer, PayrollRunDetailSerializer,
     PayrollRunCreateSerializer, PayrollRecordSerializer,
     DisbursePayrollSerializer, PaymentBatchSerializer,
-    EmployeePaymentSerializer
+    EmployeePaymentSerializer, EmployeePayrollStatusSerializer,
+    DepartmentPaymentStatusSerializer, PaymentHistoryRecordSerializer
 )
 from .services.tax_calculator import KenyanTaxCalculator
 from .services.pesapal import PesaPalService
@@ -274,6 +275,211 @@ class EmployeePaymentViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
+    """
+    Get employees with their current period payment status.
+    Used for the payroll dashboard employee table.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return EmployeeProfile.objects.filter(
+            tenant_id=self.request.user.tenant_id,
+            is_deleted=False,
+            employment_status='active'
+        )
+
+    @action(detail=False, methods=['get'])
+    def with_payment_status(self, request):
+        """
+        GET /api/employee-payroll-status/with-payment-status/
+
+        Returns all active employees with their payment status for the current period.
+        Also returns department payment status aggregations.
+
+        Query params:
+        - company_id: Filter by company (optional)
+        """
+        company_id = request.query_params.get('company_id')
+
+        # Get current period
+        now = timezone.now()
+        current_month = now.month
+        current_year = now.year
+
+        # Get employees
+        employees = self.get_queryset()
+        if company_id:
+            employees = employees.filter(company_id=company_id)
+
+        # Get current period payroll run
+        payroll_run = PayrollRun.objects.filter(
+            tenant_id=request.user.tenant_id,
+            period_month=current_month,
+            period_year=current_year,
+            is_deleted=False
+        )
+        if company_id:
+            payroll_run = payroll_run.filter(company_id=company_id)
+        payroll_run = payroll_run.order_by('-created_at').first()
+
+        # Build payment status map from payroll records
+        payment_status_map = {}
+        if payroll_run:
+            records = PayrollRecord.objects.filter(
+                payroll_run=payroll_run,
+                is_deleted=False
+            ).values('employee_id', 'payment_status', 'paid_at')
+
+            for record in records:
+                payment_status_map[str(record['employee_id'])] = {
+                    'status': record['payment_status'],
+                    'paid_at': record['paid_at']
+                }
+
+        # Get user names via raw SQL (since User model is external)
+        from django.db import connection
+        user_names = {}
+        employee_user_ids = list(employees.values_list('user_id', flat=True))
+        if employee_user_ids:
+            with connection.cursor() as cursor:
+                placeholders = ','.join(['%s'] * len(employee_user_ids))
+                cursor.execute(
+                    f"SELECT id, full_name FROM users WHERE id IN ({placeholders})",
+                    employee_user_ids
+                )
+                for row in cursor.fetchall():
+                    user_names[str(row[0])] = row[1]
+
+        # Build response data
+        employee_data = []
+        department_stats = {}
+
+        for emp in employees:
+            emp_id = str(emp.id)
+            payment_info = payment_status_map.get(emp_id, {})
+            payment_status = payment_info.get('status', 'pending')
+
+            # Add user_full_name attribute for serializer
+            emp.user_full_name = user_names.get(str(emp.user_id), emp.job_title)
+            emp.payment_status = payment_status
+            emp.last_paid_at = payment_info.get('paid_at')
+
+            employee_data.append({
+                'id': emp.id,
+                'employee_id': emp.id,
+                'employee_name': emp.user_full_name,
+                'employee_number': emp.employee_number,
+                'department': emp.department,
+                'salary': emp.salary,
+                'payment_status': payment_status,
+                'payment_method': emp.payment_method,
+                'last_paid_at': emp.last_paid_at,
+            })
+
+            # Aggregate department stats
+            dept = emp.department or 'Unassigned'
+            if dept not in department_stats:
+                department_stats[dept] = {'total': 0, 'paid': 0, 'pending': 0}
+            department_stats[dept]['total'] += 1
+            if payment_status == 'paid':
+                department_stats[dept]['paid'] += 1
+            else:
+                department_stats[dept]['pending'] += 1
+
+        # Build department status list
+        departments = []
+        for dept_name, stats in sorted(department_stats.items()):
+            if stats['paid'] == 0:
+                dept_status = 'none_paid'
+            elif stats['paid'] == stats['total']:
+                dept_status = 'all_paid'
+            else:
+                dept_status = 'partial'
+
+            departments.append({
+                'department': dept_name,
+                'total_employees': stats['total'],
+                'paid_count': stats['paid'],
+                'pending_count': stats['pending'],
+                'status': dept_status,
+            })
+
+        return Response({
+            'data': employee_data,
+            'departments': departments,
+        })
+
+
+class PaymentHistoryViewSet(viewsets.GenericViewSet):
+    """
+    Get historical payment records from completed payroll runs.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def list_history(self, request):
+        """
+        GET /api/payment-history/list-history/
+
+        Returns historical payment records from completed/processing payroll runs.
+
+        Query params:
+        - company_id: Filter by company (optional)
+        - limit: Number of records to return (default 100)
+        """
+        company_id = request.query_params.get('company_id')
+        limit = int(request.query_params.get('limit', 100))
+
+        # Get payroll records from completed runs
+        records = PayrollRecord.objects.filter(
+            tenant_id=request.user.tenant_id,
+            is_deleted=False,
+            payment_status__in=['paid', 'failed'],
+            payroll_run__status__in=['completed', 'processing']
+        ).select_related('employee', 'payroll_run').order_by('-paid_at')[:limit]
+
+        if company_id:
+            records = records.filter(payroll_run__company_id=company_id)
+
+        # Get user names
+        from django.db import connection
+        user_ids = list(set(r.employee.user_id for r in records))
+        user_names = {}
+        if user_ids:
+            with connection.cursor() as cursor:
+                placeholders = ','.join(['%s'] * len(user_ids))
+                cursor.execute(
+                    f"SELECT id, full_name FROM users WHERE id IN ({placeholders})",
+                    user_ids
+                )
+                for row in cursor.fetchall():
+                    user_names[str(row[0])] = row[1]
+
+        # Build response
+        history_data = []
+        for record in records:
+            emp = record.employee
+            run = record.payroll_run
+
+            history_data.append({
+                'id': record.id,
+                'employee_id': emp.id,
+                'employee_name': user_names.get(str(emp.user_id), emp.job_title),
+                'employee_number': emp.employee_number,
+                'department': emp.department,
+                'amount': record.net_salary,
+                'payment_method': record.payment_method,
+                'payment_date': record.paid_at,
+                'reference': record.payment_reference,
+                'status': 'paid' if record.payment_status == 'paid' else 'failed',
+                'period_month': run.period_month,
+                'period_year': run.period_year,
+            })
+
+        return Response({'data': history_data})
 
 
 class PesaPalConfigViewSet(viewsets.GenericViewSet):

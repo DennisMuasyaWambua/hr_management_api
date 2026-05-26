@@ -183,3 +183,47 @@ class PayrollCalculateSerializer(serializers.Serializer):
         required=False,
         help_text="Specific employee IDs. If empty, includes all active employees."
     )
+
+
+class EmployeePayrollStatusSerializer(serializers.Serializer):
+    """Employee with current period payment status"""
+    id = serializers.UUIDField()
+    employee_id = serializers.UUIDField(source='id')
+    employee_name = serializers.SerializerMethodField()
+    employee_number = serializers.CharField()
+    department = serializers.CharField(allow_null=True)
+    salary = serializers.DecimalField(max_digits=12, decimal_places=2)
+    payment_status = serializers.CharField()
+    payment_method = serializers.CharField()
+    last_paid_at = serializers.DateTimeField(allow_null=True)
+
+    def get_employee_name(self, obj):
+        # Get full_name from the related user
+        if hasattr(obj, 'user_full_name'):
+            return obj.user_full_name
+        return obj.job_title  # Fallback
+
+
+class DepartmentPaymentStatusSerializer(serializers.Serializer):
+    """Department payment status aggregation"""
+    department = serializers.CharField()
+    total_employees = serializers.IntegerField()
+    paid_count = serializers.IntegerField()
+    pending_count = serializers.IntegerField()
+    status = serializers.CharField()
+
+
+class PaymentHistoryRecordSerializer(serializers.Serializer):
+    """Historical payment record"""
+    id = serializers.UUIDField()
+    employee_id = serializers.UUIDField()
+    employee_name = serializers.CharField()
+    employee_number = serializers.CharField()
+    department = serializers.CharField(allow_null=True)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = serializers.CharField()
+    payment_date = serializers.DateTimeField(allow_null=True)
+    reference = serializers.CharField(allow_null=True)
+    status = serializers.CharField()
+    period_month = serializers.IntegerField()
+    period_year = serializers.IntegerField()
