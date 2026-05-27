@@ -1,13 +1,109 @@
 from celery import shared_task
 from django.utils import timezone
 from django.db import transaction
+from django.conf import settings
 from decimal import Decimal
 import logging
+import uuid
+import time
 
 from .models import PaymentBatch, PayrollRecord, PayrollRun
 from .services.pesapal import PesaPalService
+from .services.daraja import DarajaService
+from .services.intasend import IntaSendService
+from .services.qorami_sms import QoramiSMSService
 
 logger = logging.getLogger(__name__)
+
+
+def send_demo_sms(phone: str, employee_name: str, amount: float, company_name: str):
+    """Send SMS notification in demo mode using available SMS service."""
+    sms_service = QoramiSMSService()
+
+    message = (
+        f"Dear {employee_name}, your salary of KES {amount:,.2f} "
+        f"has been sent to your M-Pesa by {company_name}. "
+        f"Thank you for your service."
+    )
+
+    if sms_service.api_key:
+        try:
+            result = sms_service.send_sms(phone, message)
+            return result
+        except Exception as e:
+            logger.warning(f"SMS send failed: {e}")
+
+    # If SMS fails, log but don't block
+    logger.info(f"[DEMO] SMS notification for {phone}: {message}")
+    return {'success': True, 'demo': True}
+
+
+def _process_demo_payments(batch):
+    """
+    Process payments in demo mode - simulates successful payments and sends SMS notifications.
+    Used for demonstrations when real payment APIs aren't available.
+    """
+    from .models import PayrollRecord
+
+    records = PayrollRecord.objects.filter(
+        payroll_run=batch.payroll_run,
+        payment_method=batch.payment_method,
+        payment_status='pending'
+    ).select_related('employee')
+
+    successful = 0
+    successful_amount = Decimal('0')
+    company_name = batch.payroll_run.company.name if batch.payroll_run.company else "Your Employer"
+
+    for record in records:
+        # Mark as processing
+        record.payment_status = 'processing'
+        record.save()
+
+        # Simulate processing delay (makes demo more realistic)
+        time.sleep(0.5)
+
+        # Generate a demo reference
+        demo_reference = f"DEMO-{uuid.uuid4().hex[:8].upper()}"
+
+        # Get phone number
+        phone = record.employee.mpesa_number or record.employee.airtel_number
+
+        # Send SMS notification
+        if phone:
+            send_demo_sms(
+                phone=phone,
+                employee_name=record.employee.job_title,
+                amount=float(record.net_salary),
+                company_name=company_name
+            )
+
+        # Mark as paid (simulated success)
+        record.payment_status = 'paid'
+        record.payment_reference = demo_reference
+        record.paid_at = timezone.now()
+        record.save()
+
+        successful += 1
+        successful_amount += record.net_salary
+
+        logger.info(f"[DEMO] Payment processed for {record.employee.employee_number}: KES {record.net_salary}")
+
+    # Update batch
+    batch.successful_count = successful
+    batch.failed_count = 0
+    batch.successful_amount = successful_amount
+    batch.failed_amount = Decimal('0')
+    batch.status = 'completed'
+    batch.completed_at = timezone.now()
+    batch.save()
+
+    # Update payroll run status
+    batch.payroll_run.status = 'completed'
+    batch.payroll_run.completed_at = timezone.now()
+    batch.payroll_run.save()
+
+    logger.info(f"[DEMO] Batch completed: {successful} payments, KES {successful_amount}")
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -26,14 +122,36 @@ def process_payment_batch(self, batch_id: str):
     batch.started_at = timezone.now()
     batch.save()
 
-    # Initialize PesaPal with credentials from environment variables
-    pesapal = PesaPalService()
+    # Check if demo mode is enabled
+    demo_mode = getattr(settings, 'PAYMENT_DEMO_MODE', False)
 
-    if not pesapal.consumer_key or not pesapal.consumer_secret:
-        batch.status = 'failed'
-        batch.save()
-        logger.error("PesaPal credentials not configured in environment variables")
+    if demo_mode:
+        logger.info(f"[DEMO MODE] Processing payment batch {batch_id}")
+        _process_demo_payments(batch)
         return
+
+    # Initialize payment services
+    pesapal = PesaPalService()
+    daraja = DarajaService()
+    intasend = IntaSendService()
+
+    # Check which service to use for M-Pesa (priority: IntaSend > Daraja > PesaPal)
+    use_intasend_for_mpesa = bool(intasend.secret_key)
+    use_daraja_for_mpesa = not use_intasend_for_mpesa and daraja.consumer_key and daraja.consumer_secret
+
+    if batch.payment_method == 'mpesa':
+        if not use_intasend_for_mpesa and not use_daraja_for_mpesa:
+            if not pesapal.consumer_key or not pesapal.consumer_secret:
+                batch.status = 'failed'
+                batch.save()
+                logger.error("No M-Pesa payment provider configured (IntaSend, Daraja, or PesaPal)")
+                return
+    elif batch.payment_method != 'mpesa':
+        if not pesapal.consumer_key or not pesapal.consumer_secret:
+            batch.status = 'failed'
+            batch.save()
+            logger.error("PesaPal credentials not configured for bank/airtel payments")
+            return
 
     # Get pending records for this batch
     records = PayrollRecord.objects.filter(
@@ -56,11 +174,33 @@ def process_payment_batch(self, batch_id: str):
             if batch.payment_method == 'mpesa':
                 if not record.employee.mpesa_number:
                     raise ValueError("M-Pesa number not configured")
-                result = pesapal.send_mpesa(
-                    phone=record.employee.mpesa_number,
-                    amount=float(record.net_salary),
-                    reference=f"SAL-{record.id}"
-                )
+
+                # Use IntaSend > Daraja > PesaPal for M-Pesa B2C
+                if use_intasend_for_mpesa:
+                    result = intasend.send_mpesa(
+                        phone=record.employee.mpesa_number,
+                        amount=float(record.net_salary),
+                        reference=f"SAL-{record.id}",
+                        name=record.employee.job_title,
+                        narrative="Salary Payment"
+                    )
+                    if result.get('success'):
+                        result['reference'] = result.get('tracking_id')
+                elif use_daraja_for_mpesa:
+                    result = daraja.send_b2c(
+                        phone=record.employee.mpesa_number,
+                        amount=float(record.net_salary),
+                        reference=f"SAL-{record.id}",
+                        remarks="Salary Payment"
+                    )
+                    if result.get('success'):
+                        result['reference'] = result.get('conversation_id') or result.get('originator_conversation_id')
+                else:
+                    result = pesapal.send_mpesa(
+                        phone=record.employee.mpesa_number,
+                        amount=float(record.net_salary),
+                        reference=f"SAL-{record.id}"
+                    )
             elif batch.payment_method == 'airtel':
                 if not record.employee.airtel_number:
                     raise ValueError("Airtel number not configured")
@@ -81,15 +221,36 @@ def process_payment_batch(self, batch_id: str):
                 )
 
             if result.get('success'):
-                # Payment initiated - mark as processing until IPN confirms
+                # Payment initiated - mark as processing until callback confirms
                 record.payment_status = 'processing'
-                record.payment_reference = result.get('order_tracking_id') or result.get('reference')
+                record.payment_reference = result.get('order_tracking_id') or result.get('reference') or result.get('conversation_id')
                 successful += 1
                 successful_amount += record.net_salary
+
+                # Send SMS notification
+                try:
+                    sms_service = QoramiSMSService()
+                    if sms_service.api_key:
+                        phone = record.employee.mpesa_number or record.employee.airtel_number
+                        if phone:
+                            company_name = batch.payroll_run.company.name if batch.payroll_run.company else "Your Employer"
+                            sms_result = sms_service.send_payment_notification(
+                                phone=phone,
+                                employee_name=record.employee.job_title,
+                                amount=float(record.net_salary),
+                                company_name=company_name
+                            )
+                            if sms_result.get('success'):
+                                logger.info(f"SMS notification sent to {phone}")
+                            else:
+                                logger.warning(f"SMS notification failed: {sms_result.get('error')}")
+                except Exception as sms_error:
+                    logger.warning(f"SMS notification error: {sms_error}")
             else:
                 record.payment_status = 'failed'
                 failed += 1
                 failed_amount += record.net_salary
+                logger.error(f"Payment failed for {record.id}: {result.get('error')}")
 
         except Exception as e:
             logger.exception(f"Payment failed for record {record.id}")

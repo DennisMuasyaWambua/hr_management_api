@@ -1,5 +1,6 @@
 django>=4.2
 djangorestframework>=3.14
+django-cors-headers>=4.3
 celery>=5.3
 redis>=4.0
 requests>=2.28

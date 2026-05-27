@@ -2,6 +2,7 @@ from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -207,8 +208,14 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 )
                 batches.append(batch)
 
-                # Queue async processing
-                process_payment_batch.delay(str(batch.id))
+                # Process payments - use sync mode for demo, async for production
+                demo_mode = getattr(settings, 'PAYMENT_DEMO_MODE', False)
+                if demo_mode:
+                    # Process synchronously for demo (no Celery needed)
+                    process_payment_batch(str(batch.id))
+                else:
+                    # Queue async processing
+                    process_payment_batch.delay(str(batch.id))
 
         # Update payroll run status
         payroll_run.status = 'processing'

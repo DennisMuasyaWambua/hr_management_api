@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',
     'rest_framework.authtoken',
     'apps.payroll',
@@ -27,6 +28,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -123,3 +125,34 @@ PESAPAL_CONSUMER_KEY = config('PESAPAL_CONSUMER_KEY', default='')
 PESAPAL_CONSUMER_SECRET = config('PESAPAL_CONSUMER_SECRET', default='')
 PESAPAL_IPN_ID = config('PESAPAL_IPN_ID', default='')
 PESAPAL_SANDBOX = config('PESAPAL_SANDBOX', default=True, cast=bool)
+
+# Safaricom Daraja M-Pesa B2C Configuration
+DARAJA_CONSUMER_KEY = config('DARAJA_CONSUMER_KEY', default='')
+DARAJA_CONSUMER_SECRET = config('DARAJA_CONSUMER_SECRET', default='')
+DARAJA_SHORTCODE = config('DARAJA_SHORTCODE', default='600998')
+DARAJA_INITIATOR_NAME = config('DARAJA_INITIATOR_NAME', default='testapi')
+DARAJA_INITIATOR_PASSWORD = config('DARAJA_INITIATOR_PASSWORD', default='')
+DARAJA_SANDBOX = config('DARAJA_SANDBOX', default=True, cast=bool)
+DARAJA_RESULT_URL = config('DARAJA_RESULT_URL', default='')
+DARAJA_TIMEOUT_URL = config('DARAJA_TIMEOUT_URL', default='')
+
+# IntaSend M-Pesa B2C Configuration (Primary for M-Pesa disbursements)
+INTASEND_PUBLISHABLE_KEY = config('INTASEND_PUBLISHABLE_KEY', default='')
+INTASEND_SECRET_KEY = config('INTASEND_SECRET_KEY', default='')
+INTASEND_SANDBOX = config('INTASEND_SANDBOX', default=True, cast=bool)
+
+# Qorami SMS Configuration (for payment notifications)
+QORAMI_API_KEY = config('QORAMI_API_KEY', default='')
+QORAMI_SENDER_ID = config('QORAMI_SENDER_ID', default='HRSYSTEM')
+
+# Demo mode - simulates payments for demonstrations
+PAYMENT_DEMO_MODE = config('PAYMENT_DEMO_MODE', default=False, cast=bool)
+
+# CORS Configuration
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000',
+    cast=lambda v: [s.strip() for s in v.split(',')]
+)
+CORS_ALLOW_CREDENTIALS = True
