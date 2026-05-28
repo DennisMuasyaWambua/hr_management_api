@@ -79,6 +79,14 @@ else:
         }
     }
 
+    # Disable FK constraints for SQLite (data lives in Supabase, SQLite is local cache)
+    from django.db.backends.signals import connection_created
+    def disable_foreign_keys(sender, connection, **kwargs):
+        if connection.vendor == 'sqlite':
+            cursor = connection.cursor()
+            cursor.execute('PRAGMA foreign_keys=OFF;')
+    connection_created.connect(disable_foreign_keys)
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -141,9 +149,10 @@ INTASEND_PUBLISHABLE_KEY = config('INTASEND_PUBLISHABLE_KEY', default='')
 INTASEND_SECRET_KEY = config('INTASEND_SECRET_KEY', default='')
 INTASEND_SANDBOX = config('INTASEND_SANDBOX', default=True, cast=bool)
 
-# Qorami SMS Configuration (for payment notifications)
-QORAMI_API_KEY = config('QORAMI_API_KEY', default='')
-QORAMI_SENDER_ID = config('QORAMI_SENDER_ID', default='HRSYSTEM')
+# Africa's Talking SMS Configuration (for payment notifications)
+AT_USERNAME = config('AT_USERNAME', default='sandbox')
+AT_API_KEY = config('AT_API_KEY', default='')
+AT_SENDER_ID = config('AT_SENDER_ID', default='')
 
 # Demo mode - simulates payments for demonstrations
 PAYMENT_DEMO_MODE = config('PAYMENT_DEMO_MODE', default=False, cast=bool)

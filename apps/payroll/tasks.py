@@ -1,6 +1,6 @@
 from celery import shared_task
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, connection
 from django.conf import settings
 from decimal import Decimal
 import logging
@@ -11,14 +11,30 @@ from .models import PaymentBatch, PayrollRecord, PayrollRun
 from .services.pesapal import PesaPalService
 from .services.daraja import DarajaService
 from .services.intasend import IntaSendService
-from .services.qorami_sms import QoramiSMSService
+from .services.africastalking_sms import AfricasTalkingSMSService
 
 logger = logging.getLogger(__name__)
 
 
+def get_employee_full_name(user_id: str, fallback: str = "Valued Employee") -> str:
+    """Fetch employee's full name from users table."""
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT full_name FROM users WHERE id = %s",
+                [user_id]
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return row[0]
+    except Exception as e:
+        logger.warning(f"Could not fetch user name for {user_id}: {e}")
+    return fallback
+
+
 def send_demo_sms(phone: str, employee_name: str, amount: float, company_name: str):
-    """Send SMS notification in demo mode using available SMS service."""
-    sms_service = QoramiSMSService()
+    """Send SMS notification in demo mode using Africa's Talking."""
+    sms_service = AfricasTalkingSMSService()
 
     message = (
         f"Dear {employee_name}, your salary of KES {amount:,.2f} "
@@ -29,6 +45,8 @@ def send_demo_sms(phone: str, employee_name: str, amount: float, company_name: s
     if sms_service.api_key:
         try:
             result = sms_service.send_sms(phone, message)
+            if result.get('success'):
+                logger.info(f"SMS sent to {phone} via Africa's Talking")
             return result
         except Exception as e:
             logger.warning(f"SMS send failed: {e}")
@@ -71,9 +89,14 @@ def _process_demo_payments(batch):
 
         # Send SMS notification
         if phone:
+            # Get actual employee name from users table
+            employee_name = get_employee_full_name(
+                str(record.employee.user_id),
+                fallback=record.employee.job_title
+            )
             send_demo_sms(
                 phone=phone,
-                employee_name=record.employee.job_title,
+                employee_name=employee_name,
                 amount=float(record.net_salary),
                 company_name=company_name
             )
@@ -227,16 +250,21 @@ def process_payment_batch(self, batch_id: str):
                 successful += 1
                 successful_amount += record.net_salary
 
-                # Send SMS notification
+                # Send SMS notification via Africa's Talking
                 try:
-                    sms_service = QoramiSMSService()
+                    sms_service = AfricasTalkingSMSService()
                     if sms_service.api_key:
                         phone = record.employee.mpesa_number or record.employee.airtel_number
                         if phone:
                             company_name = batch.payroll_run.company.name if batch.payroll_run.company else "Your Employer"
+                            # Get actual employee name from users table
+                            employee_name = get_employee_full_name(
+                                str(record.employee.user_id),
+                                fallback=record.employee.job_title
+                            )
                             sms_result = sms_service.send_payment_notification(
                                 phone=phone,
-                                employee_name=record.employee.job_title,
+                                employee_name=employee_name,
                                 amount=float(record.net_salary),
                                 company_name=company_name
                             )
