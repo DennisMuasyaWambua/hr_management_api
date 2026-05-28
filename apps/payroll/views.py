@@ -790,3 +790,69 @@ class IntaSendConfigViewSet(viewsets.GenericViewSet):
 
         result = intasend.get_wallet_balance()
         return Response(result)
+
+    @action(detail=False, methods=['post'], url_path='send-mpesa')
+    def send_mpesa(self, request):
+        """
+        Send M-Pesa B2C payment via IntaSend.
+
+        POST /api/intasend/send-mpesa/
+
+        Body:
+        - phone: Recipient phone number (required)
+        - amount: Amount in KES (required)
+        - name: Recipient name (optional, default: "Employee")
+        - reference: Payment reference (optional, auto-generated if not provided)
+        - narrative: Payment description (optional, default: "Salary Payment")
+
+        Returns payment initiation result with tracking_id.
+        """
+        intasend = self.get_intasend()
+        if not intasend:
+            return Response(
+                {'success': False, 'error': 'IntaSend credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        phone = request.data.get('phone')
+        amount = request.data.get('amount')
+        name = request.data.get('name', 'Employee')
+        reference = request.data.get('reference', f'PAY-{int(__import__("time").time())}')
+        narrative = request.data.get('narrative', 'Salary Payment')
+
+        if not phone:
+            return Response(
+                {'success': False, 'error': 'phone is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not amount:
+            return Response(
+                {'success': False, 'error': 'amount is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            amount = float(amount)
+        except (ValueError, TypeError):
+            return Response(
+                {'success': False, 'error': 'Invalid amount'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        logger.info(f"[send-mpesa] Sending KES {amount} to {phone} via IntaSend")
+
+        result = intasend.send_mpesa(
+            phone=phone,
+            amount=amount,
+            reference=reference,
+            name=name,
+            narrative=narrative
+        )
+
+        logger.info(f"[send-mpesa] Result: {result}")
+
+        if result.get('success'):
+            return Response(result)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
