@@ -2,6 +2,7 @@
 IntaSend M-Pesa B2C Integration Service.
 
 Handles M-Pesa Business to Customer (B2C) disbursements for payroll.
+Uses the official IntaSend Python SDK for reliable payment processing.
 
 To set up:
 1. Register at https://intasend.com/
@@ -10,27 +11,34 @@ To set up:
 
 Environment variables required:
 - INTASEND_PUBLISHABLE_KEY: Your IntaSend publishable key
-- INTASEND_SECRET_KEY: Your IntaSend secret key
+- INTASEND_SECRET_KEY: Your IntaSend secret key (token)
 - INTASEND_SANDBOX: True for sandbox, False for production
+
+Documentation: https://developers.intasend.com/docs/m-pesa-b2c
 """
 
-import requests
 import logging
 from typing import Dict, List, Optional
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Try to import the official SDK
+try:
+    from intasend import APIService
+    INTASEND_SDK_AVAILABLE = True
+except ImportError:
+    INTASEND_SDK_AVAILABLE = False
+    logger.warning("intasend-python package not installed. Run: pip install intasend-python")
+
 
 class IntaSendService:
     """
     IntaSend payment service for M-Pesa B2C disbursements.
 
+    Uses the official IntaSend Python SDK for payment processing.
     Documentation: https://developers.intasend.com/
     """
-
-    SANDBOX_URL = 'https://sandbox.intasend.com/api/v1'
-    PRODUCTION_URL = 'https://payment.intasend.com/api/v1'
 
     def __init__(
         self,
@@ -40,18 +48,21 @@ class IntaSendService:
     ):
         """Initialize IntaSend service with credentials."""
         self.sandbox = sandbox if sandbox is not None else getattr(settings, 'INTASEND_SANDBOX', True)
-        self.base_url = self.SANDBOX_URL if self.sandbox else self.PRODUCTION_URL
-
         self.publishable_key = publishable_key or getattr(settings, 'INTASEND_PUBLISHABLE_KEY', '')
         self.secret_key = secret_key or getattr(settings, 'INTASEND_SECRET_KEY', '')
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Get headers with authorization."""
-        return {
-            'Authorization': f'Bearer {self.secret_key}',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
+        # Initialize the SDK service if available
+        self._service = None
+        if INTASEND_SDK_AVAILABLE and self.secret_key and self.publishable_key:
+            try:
+                self._service = APIService(
+                    token=self.secret_key,
+                    publishable_key=self.publishable_key,
+                    test=self.sandbox
+                )
+                logger.info(f"IntaSend SDK initialized (sandbox={self.sandbox})")
+            except Exception as e:
+                logger.error(f"Failed to initialize IntaSend SDK: {e}")
 
     def send_mpesa(
         self,
@@ -80,107 +91,62 @@ class IntaSendService:
             if not phone:
                 return {'success': False, 'error': 'Invalid phone number'}
 
-            if not self.secret_key:
+            if not self._service:
+                if not INTASEND_SDK_AVAILABLE:
+                    return {'success': False, 'error': 'IntaSend SDK not installed. Run: pip install intasend-python'}
                 return {'success': False, 'error': 'IntaSend credentials not configured'}
 
-            url = f"{self.base_url}/send-money/initiate/"
+            # Prepare transaction
+            transactions = [
+                {
+                    'name': name,
+                    'account': phone,
+                    'amount': float(amount),
+                    'narrative': narrative
+                }
+            ]
 
-            payload = {
-                "currency": "KES",
-                "provider": "MPESA-B2C",
-                "transactions": [
-                    {
-                        "account": phone,
-                        "amount": str(amount),
-                        "narrative": narrative,
-                        "name": name,
-                        "reference": reference
-                    }
-                ]
-            }
+            logger.info(f"Sending M-Pesa B2C to {phone}: KES {amount} (ref: {reference})")
 
-            logger.info(f"Sending M-Pesa B2C to {phone}: KES {amount}")
-
-            response = requests.post(
-                url,
-                json=payload,
-                headers=self._get_headers(),
-                timeout=60
+            # Send with auto-approval (requires_approval='NO')
+            response = self._service.transfer.mpesa(
+                currency='KES',
+                transactions=transactions,
+                requires_approval='NO'
             )
 
-            data = response.json()
+            tracking_id = response.get('tracking_id')
+            status = response.get('status')
+            status_code = response.get('status_code')
 
-            if response.status_code in [200, 201]:
-                # Check if the request was accepted
-                if data.get('status') == 'Preview and approve':
-                    # Need to approve the transaction
-                    tracking_id = data.get('tracking_id')
-                    if tracking_id:
-                        return self._approve_transaction(tracking_id, reference)
+            logger.info(f"IntaSend response: status={status}, code={status_code}, tracking_id={tracking_id}")
 
-                return {
-                    'success': True,
-                    'tracking_id': data.get('tracking_id'),
-                    'reference': reference,
-                    'status': data.get('status'),
-                    'message': 'Payment initiated successfully'
-                }
-            else:
-                error_msg = data.get('message') or data.get('error') or data.get('detail') or 'Payment request failed'
-                logger.error(f"IntaSend B2C failed: {error_msg}")
-                return {
-                    'success': False,
-                    'error': error_msg,
-                    'details': data
-                }
+            # Check if transaction was accepted
+            if tracking_id:
+                # Get transaction details
+                txn_list = response.get('transactions', [])
+                txn_status = txn_list[0].get('status') if txn_list else 'Pending'
 
-        except requests.Timeout:
-            logger.error(f"IntaSend B2C timeout for {reference}")
-            return {'success': False, 'error': 'Request timeout'}
-        except requests.RequestException as e:
-            logger.exception(f"IntaSend B2C request failed for {reference}")
-            return {'success': False, 'error': str(e)}
-
-    def _approve_transaction(self, tracking_id: str, reference: str) -> Dict:
-        """
-        Approve a pending transaction.
-
-        IntaSend requires approval after initiating a send-money request.
-        """
-        try:
-            url = f"{self.base_url}/send-money/approve/"
-
-            payload = {
-                "tracking_id": tracking_id
-            }
-
-            response = requests.post(
-                url,
-                json=payload,
-                headers=self._get_headers(),
-                timeout=60
-            )
-
-            data = response.json()
-
-            if response.status_code in [200, 201]:
                 return {
                     'success': True,
                     'tracking_id': tracking_id,
                     'reference': reference,
-                    'status': data.get('status', 'approved'),
-                    'message': 'Payment approved and processing'
+                    'status': status,
+                    'status_code': status_code,
+                    'transaction_status': txn_status,
+                    'message': 'Payment initiated successfully'
                 }
             else:
-                error_msg = data.get('message') or data.get('error') or 'Approval failed'
+                error_msg = response.get('message') or response.get('error') or 'Payment initiation failed'
+                logger.error(f"IntaSend B2C failed: {error_msg}")
                 return {
                     'success': False,
                     'error': error_msg,
-                    'tracking_id': tracking_id
+                    'details': response
                 }
 
-        except requests.RequestException as e:
-            logger.exception(f"IntaSend approval failed for {tracking_id}")
+        except Exception as e:
+            logger.exception(f"IntaSend B2C request failed for {reference}")
             return {'success': False, 'error': str(e)}
 
     def send_bulk_mpesa(
@@ -203,70 +169,55 @@ class IntaSendService:
             Dict with success status and batch details
         """
         try:
-            if not self.secret_key:
+            if not self._service:
+                if not INTASEND_SDK_AVAILABLE:
+                    return {'success': False, 'error': 'IntaSend SDK not installed. Run: pip install intasend-python'}
                 return {'success': False, 'error': 'IntaSend credentials not configured'}
 
-            url = f"{self.base_url}/send-money/initiate/"
-
-            # Format transactions for IntaSend
+            # Format transactions for IntaSend SDK
             formatted_transactions = []
             for txn in transactions:
                 phone = self._normalize_phone(txn.get('phone', ''))
                 if phone:
                     formatted_transactions.append({
-                        "account": phone,
-                        "amount": str(txn.get('amount', 0)),
-                        "narrative": narrative,
-                        "name": txn.get('name', 'Employee'),
-                        "reference": txn.get('reference', '')
+                        'name': txn.get('name', 'Employee'),
+                        'account': phone,
+                        'amount': float(txn.get('amount', 0)),
+                        'narrative': narrative
                     })
 
             if not formatted_transactions:
                 return {'success': False, 'error': 'No valid transactions'}
 
-            payload = {
-                "currency": "KES",
-                "provider": "MPESA-B2C",
-                "transactions": formatted_transactions
-            }
-
             logger.info(f"Sending bulk M-Pesa B2C: {len(formatted_transactions)} transactions")
 
-            response = requests.post(
-                url,
-                json=payload,
-                headers=self._get_headers(),
-                timeout=120
+            # Send with auto-approval
+            response = self._service.transfer.mpesa(
+                currency='KES',
+                transactions=formatted_transactions,
+                requires_approval='NO'
             )
 
-            data = response.json()
+            tracking_id = response.get('tracking_id')
+            status = response.get('status')
 
-            if response.status_code in [200, 201]:
-                tracking_id = data.get('tracking_id')
-
-                # Auto-approve if needed
-                if data.get('status') == 'Preview and approve' and tracking_id:
-                    return self._approve_transaction(tracking_id, f"BULK-{tracking_id}")
-
+            if tracking_id:
                 return {
                     'success': True,
                     'tracking_id': tracking_id,
-                    'status': data.get('status'),
+                    'status': status,
                     'total_count': len(formatted_transactions),
                     'message': 'Bulk payment initiated'
                 }
             else:
-                error_msg = data.get('message') or data.get('error') or 'Bulk payment failed'
+                error_msg = response.get('message') or response.get('error') or 'Bulk payment failed'
                 return {
                     'success': False,
                     'error': error_msg,
-                    'details': data
+                    'details': response
                 }
 
-        except requests.Timeout:
-            logger.error("IntaSend bulk B2C timeout")
-            return {'success': False, 'error': 'Request timeout'}
-        except requests.RequestException as e:
+        except Exception as e:
             logger.exception("IntaSend bulk B2C request failed")
             return {'success': False, 'error': str(e)}
 
@@ -281,59 +232,65 @@ class IntaSendService:
             Dict with transaction status
         """
         try:
-            url = f"{self.base_url}/send-money/status/"
+            if not self._service:
+                return {'success': False, 'error': 'IntaSend not configured'}
 
-            payload = {
-                "tracking_id": tracking_id
+            response = self._service.transfer.status(tracking_id)
+
+            status = response.get('status', 'PENDING')
+            status_code = response.get('status_code', '')
+
+            # Get individual transaction statuses
+            transactions = response.get('transactions', [])
+
+            return {
+                'success': True,
+                'tracking_id': tracking_id,
+                'status': status,
+                'status_code': status_code,
+                'payment_status': self.map_status(status),
+                'transactions': transactions,
+                'wallet': response.get('wallet'),
+                'paid_amount': response.get('paid_amount'),
+                'failed_amount': response.get('failed_amount'),
+                'actual_charges': response.get('actual_charges')
             }
 
-            response = requests.post(
-                url,
-                json=payload,
-                headers=self._get_headers(),
-                timeout=30
-            )
-
-            data = response.json()
-
-            if response.status_code == 200:
-                # Map IntaSend status to internal status
-                status = data.get('status', 'PENDING')
-
-                return {
-                    'success': True,
-                    'tracking_id': tracking_id,
-                    'status': status,
-                    'payment_status': self.map_status(status),
-                    'transactions': data.get('transactions', [])
-                }
-            else:
-                return {
-                    'success': False,
-                    'error': data.get('message') or 'Status query failed'
-                }
-
-        except requests.RequestException as e:
+        except Exception as e:
             logger.exception(f"IntaSend status query failed for {tracking_id}")
             return {'success': False, 'error': str(e)}
 
     def get_wallet_balance(self) -> Dict:
         """Get wallet balance."""
         try:
-            url = f"{self.base_url}/wallets/"
+            if not self._service:
+                return {'success': False, 'error': 'IntaSend not configured'}
 
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                timeout=30
-            )
+            # The SDK doesn't have a direct wallet balance method,
+            # so we use a status check which returns wallet info
+            # Or we can make a direct API call
+            import requests
 
+            base_url = 'https://sandbox.intasend.com/api/v1' if self.sandbox else 'https://payment.intasend.com/api/v1'
+            url = f'{base_url}/wallets/'
+            headers = {
+                'Authorization': f'Bearer {self.secret_key}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(url, headers=headers, timeout=30)
             data = response.json()
 
             if response.status_code == 200:
+                # Find KES wallet
+                wallets = data.get('results', [])
+                kes_wallet = next((w for w in wallets if w.get('currency') == 'KES'), None)
+
                 return {
                     'success': True,
-                    'wallets': data
+                    'wallets': wallets,
+                    'kes_balance': kes_wallet.get('available_balance') if kes_wallet else 0,
+                    'kes_wallet': kes_wallet
                 }
             else:
                 return {
@@ -341,7 +298,7 @@ class IntaSendService:
                     'error': data.get('message') or 'Balance query failed'
                 }
 
-        except requests.RequestException as e:
+        except Exception as e:
             logger.exception("IntaSend balance query failed")
             return {'success': False, 'error': str(e)}
 
@@ -371,18 +328,16 @@ class IntaSendService:
         """
         Map IntaSend status to internal status.
 
-        IntaSend statuses: Pending, Processed, Failed, etc.
+        IntaSend statuses: Pending, Processing payment, Completed, Failed, etc.
         Internal statuses: paid, processing, failed, pending
         """
-        status_map = {
-            'Pending': 'processing',
-            'Processing': 'processing',
-            'Processed': 'paid',
-            'Complete': 'paid',
-            'Completed': 'paid',
-            'Successful': 'paid',
-            'Failed': 'failed',
-            'Cancelled': 'failed',
-            'Rejected': 'failed',
-        }
-        return status_map.get(intasend_status, 'processing')
+        status_lower = intasend_status.lower() if intasend_status else ''
+
+        if 'completed' in status_lower or 'successful' in status_lower:
+            return 'paid'
+        elif 'failed' in status_lower or 'cancelled' in status_lower or 'rejected' in status_lower:
+            return 'failed'
+        elif 'processing' in status_lower or 'confirming' in status_lower:
+            return 'processing'
+        else:
+            return 'processing'  # Default to processing for pending/unknown states

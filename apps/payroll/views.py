@@ -20,6 +20,7 @@ from .serializers import (
 )
 from .services.tax_calculator import KenyanTaxCalculator
 from .services.pesapal import PesaPalService
+from .services.intasend import IntaSendService
 from .tasks import process_payment_batch, process_ipn_callback
 
 logger = logging.getLogger(__name__)
@@ -702,3 +703,90 @@ class PesaPalIPNWebhook(views.APIView):
             'orderMerchantReference': merchant_reference,
             'status': 200
         })
+
+
+class IntaSendConfigViewSet(viewsets.GenericViewSet):
+    """
+    IntaSend configuration and transaction status management.
+
+    IntaSend is used as the primary M-Pesa B2C payment provider.
+    Credentials are loaded from environment variables:
+    - INTASEND_PUBLISHABLE_KEY
+    - INTASEND_SECRET_KEY
+    - INTASEND_SANDBOX
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_intasend(self):
+        """Get IntaSend service instance"""
+        intasend = IntaSendService()
+        if not intasend.secret_key:
+            return None
+        return intasend
+
+    @action(detail=False, methods=['get'])
+    def config_status(self, request):
+        """
+        Check if IntaSend is properly configured.
+
+        GET /api/intasend/config-status/
+
+        Returns:
+        - configured: bool - Whether IntaSend credentials are set
+        - sandbox: bool - Whether sandbox mode is enabled
+        - provider: str - Always 'intasend'
+        """
+        intasend = IntaSendService()
+        return Response({
+            'configured': bool(intasend.secret_key and intasend.publishable_key),
+            'sandbox': intasend.sandbox,
+            'provider': 'intasend',
+        })
+
+    @action(detail=False, methods=['get'])
+    def transaction_status(self, request):
+        """
+        Check status of a specific IntaSend transaction.
+
+        GET /api/intasend/transaction-status/?tracking_id=xxx
+
+        Query params:
+        - tracking_id: IntaSend transaction tracking ID
+
+        Returns transaction status information.
+        """
+        tracking_id = request.query_params.get('tracking_id')
+        if not tracking_id:
+            return Response(
+                {'error': 'tracking_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        intasend = self.get_intasend()
+        if not intasend:
+            return Response(
+                {'error': 'IntaSend credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = intasend.get_transaction_status(tracking_id)
+        return Response(result)
+
+    @action(detail=False, methods=['get'])
+    def wallet_balance(self, request):
+        """
+        Get IntaSend wallet balance.
+
+        GET /api/intasend/wallet-balance/
+
+        Returns the current wallet balance for disbursements.
+        """
+        intasend = self.get_intasend()
+        if not intasend:
+            return Response(
+                {'error': 'IntaSend credentials not configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = intasend.get_wallet_balance()
+        return Response(result)
