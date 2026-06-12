@@ -147,9 +147,11 @@ class PayrollRun(models.Model):
     STATUS_CHOICES = [
         ('draft', 'Draft'),
         ('calculated', 'Calculated'),
+        ('pending_approval', 'Pending Approval'),  # quorum approval flow (additive)
         ('approved', 'Approved'),
         ('processing', 'Processing'),
         ('completed', 'Completed'),
+        ('paid', 'Paid'),  # terminal state; documents locked (additive)
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
@@ -306,3 +308,9 @@ class PaymentBatch(models.Model):
 
     def __str__(self):
         return f"Batch {self.payment_method} - {self.status}"
+
+
+# Approval workflow models (quorum approvals, documents, DocuSeal) — kept in a
+# separate module so the Supabase-mirror models above stay untouched.
+from .approval_models import (ApproverConfig, PayrollApprover,  # noqa: E402,F401
+                              PayrollApproval, PayrollDocument)

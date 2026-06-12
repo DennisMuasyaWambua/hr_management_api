@@ -24,6 +24,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'apps.payroll',
+    'apps.core',
+    'apps.hr',
+    'apps.attendance',
 ]
 
 MIDDLEWARE = [
@@ -157,11 +160,67 @@ AT_SENDER_ID = config('AT_SENDER_ID', default='')
 # Demo mode - simulates payments for demonstrations
 PAYMENT_DEMO_MODE = config('PAYMENT_DEMO_MODE', default=False, cast=bool)
 
+# ---------------------------------------------------------------------------
+# TimescaleDB — spatio-temporal attendance logging from the PWA.
+# When TIMESCALE_ENABLED, apps.attendance models live in this database (see
+# apps.attendance.router) and migration 0002 converts attendance_events into
+# a hypertable. When disabled, everything stays on the default DB unchanged.
+# ---------------------------------------------------------------------------
+TIMESCALE_ENABLED = config('TIMESCALE_ENABLED', default=False, cast=bool)
+if TIMESCALE_ENABLED:
+    DATABASES['timescale'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('TIMESCALE_DB_NAME', default='hr_timeseries'),
+        'USER': config('TIMESCALE_DB_USER', default='postgres'),
+        'PASSWORD': config('TIMESCALE_DB_PASSWORD', default=''),
+        'HOST': config('TIMESCALE_DB_HOST', default='localhost'),
+        'PORT': config('TIMESCALE_DB_PORT', default='5433'),
+    }
+DATABASE_ROUTERS = ['apps.attendance.router.TimescaleRouter']
+
+# Email (Resend SMTP-compatible; any SMTP provider works)
+EMAIL_BACKEND = config('EMAIL_BACKEND',
+                       default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.resend.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='resend')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL',
+                            default='Sheer Logic HR <hr@sheerlogic.example>')
+
+# Africa's Talking WhatsApp (Chat API); falls back to SMS when unset
+AT_WHATSAPP_NUMBER = config('AT_WHATSAPP_NUMBER', default='')
+
+# DocuSeal e-signature
+DOCUSEAL_BASE_URL = config('DOCUSEAL_BASE_URL', default='https://api.docuseal.com')
+DOCUSEAL_API_KEY = config('DOCUSEAL_API_KEY', default='')
+DOCUSEAL_WEBHOOK_SECRET = config('DOCUSEAL_WEBHOOK_SECRET', default='')
+DOCUSEAL_DEMO_MODE = config('DOCUSEAL_DEMO_MODE', default=True, cast=bool)
+
+# Smile ID facial recognition
+SMILEID_PARTNER_ID = config('SMILEID_PARTNER_ID', default='')
+SMILEID_API_KEY = config('SMILEID_API_KEY', default='')
+SMILEID_BASE_URL = config('SMILEID_BASE_URL',
+                          default='https://testapi.smileidentity.com/v1')
+SMILEID_DEMO_MODE = config('SMILEID_DEMO_MODE', default=True, cast=bool)
+
+# Public base URL used in one-tap links sent over SMS/WhatsApp
+PUBLIC_API_BASE_URL = config('PUBLIC_API_BASE_URL', default='http://localhost:8000')
+
+# RBAC: when True, requests without role headers are denied on protected
+# endpoints. Keep False until the dashboard forwards X-User-Role everywhere.
+RBAC_STRICT = config('RBAC_STRICT', default=False, cast=bool)
+
+# Generated documents (payroll PDFs/Excel)
+MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
+MEDIA_URL = '/media/'
+
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000,https://hr-system-dashboard-sheerlogic.vercel.app/payroll',
+    default='http://localhost:3000,http://127.0.0.1:3000,https://hr-system-dashboard-sheerlogic.vercel.app',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = True
