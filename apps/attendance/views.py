@@ -8,6 +8,9 @@ check-in response includes only what they need (whether a reason is required).
 """
 from django.db.models import Count, Q
 from django.utils import timezone
+from drf_spectacular.utils import (OpenApiParameter, OpenApiResponse,
+                                   extend_schema, inline_serializer)
+from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -57,6 +60,26 @@ class CheckInView(APIView):
     Writes an AttendanceEvent to the Timescale hypertable, evaluates the
     geofence, and opens a GeofenceViolation when out of zone in work hours.
     """
+    @extend_schema(
+        summary='Face + GPS check-in/out (PWA)',
+        description='Verifies the selfie via Smile ID (when provided), logs a '
+                    'spatio-temporal AttendanceEvent, evaluates the assigned '
+                    'work-zone geofence and flags out-of-zone episodes. The '
+                    'response only exposes the caller\'s own status — never '
+                    'other employees\' locations.',
+        request=CheckInSerializer,
+        responses={
+            201: inline_serializer('CheckInResult', {
+                'ok': drf_serializers.BooleanField(),
+                'event_id': drf_serializers.IntegerField(),
+                'event_type': drf_serializers.CharField(),
+                'face_verified': drf_serializers.BooleanField(allow_null=True),
+                'reason_required': drf_serializers.BooleanField(),
+            }),
+            403: OpenApiResponse(description='Face not recognized'),
+            502: OpenApiResponse(description='Smile ID unreachable'),
+        },
+    )
     def post(self, request):
         ser = CheckInSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -140,6 +163,14 @@ class CheckInView(APIView):
 
 class LocationPingView(APIView):
     """Lightweight periodic GPS ping from the PWA → hypertable row."""
+    @extend_schema(
+        summary='Background GPS ping (PWA)',
+        request=CheckInSerializer,
+        responses={201: inline_serializer('PingResult', {
+            'ok': drf_serializers.BooleanField(),
+            'event_id': drf_serializers.IntegerField(),
+        })},
+    )
     def post(self, request):
         d = request.data
         required = ('employee_id', 'company_id', 'lat', 'lng')
@@ -168,6 +199,14 @@ class GeofenceDashboardView(APIView):
     permission_classes = [HasModulePermission]
     rbac_module = 'geofence'
 
+    @extend_schema(
+        summary='HQ geofence dashboard (color-coded, HR/admin only)',
+        parameters=[OpenApiParameter('company_id', str, required=True)],
+        responses={200: OpenApiResponse(
+            description='{"employees": [{employee_id, color: green|red|grey, '
+                        'last_seen, event_type, lat, lng, in_zone, reason}], '
+                        '"open_violations": [...]}')},
+    )
     def get(self, request):
         company_id = request_company_id(request)
         if not company_id:
@@ -224,6 +263,17 @@ class AttendanceRateView(APIView):
     permission_classes = [HasModulePermission]
     rbac_module = 'attendance'
 
+    @extend_schema(
+        summary='Attendance rate for a company on a date',
+        parameters=[OpenApiParameter('company_id', str, required=True),
+                    OpenApiParameter('date', str, description='ISO date; defaults to today')],
+        responses={200: inline_serializer('AttendanceRate', {
+            'date': drf_serializers.DateField(),
+            'headcount': drf_serializers.IntegerField(),
+            'checked_in': drf_serializers.IntegerField(),
+            'rate': drf_serializers.FloatField(),
+        })},
+    )
     def get(self, request):
         from apps.payroll.models import EmployeeProfile
         company_id = request_company_id(request)

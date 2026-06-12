@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'rest_framework.authtoken',
+    'drf_spectacular',
     'apps.payroll',
     'apps.core',
     'apps.hr',
@@ -118,6 +119,44 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# OpenAPI / Swagger documentation (served at /api/docs/, /api/redoc/)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Sheer Logic HR API',
+    'DESCRIPTION': (
+        'Multi-tenant HR/Payroll backend for Kenyan businesses.\n\n'
+        '## Authentication\n'
+        'All endpoints (except webhooks and one-tap links) require either:\n'
+        '- `X-Service-Key: <key>` — service-to-service calls from the Next.js apps, or\n'
+        '- `Authorization: Token <token>` — DRF token auth.\n\n'
+        '## Identity & RBAC headers\n'
+        'Frontend proxies forward the session user on every call:\n'
+        '`X-User-Id`, `X-User-Role` (super_admin | company_admin | hr | manager | employee), '
+        '`X-User-Email`, `X-Company-Id`.\n'
+        'Role enforcement: payroll endpoints are **HR/admin only — never managers or '
+        'employees**; other modules check `<module>.view` / `<module>.manage` grants '
+        '(manage roles at `/api/rbac/`). When `RBAC_STRICT` is off, calls without role '
+        'headers fall back to legacy service-key trust and are audit-logged.\n\n'
+        '## Multi-tenancy\n'
+        'Rows are scoped by `company_id` (pass `X-Company-Id` header or `company_id` '
+        'query param on list endpoints).\n\n'
+        '## Payroll lifecycle\n'
+        '`draft → calculated → pending_approval → approved → processing → completed/paid`.\n'
+        'Drive it via `POST /api/payroll-workflow/{run_id}/{verb}/` with verbs '
+        '`submit` (generates password-protected PDF + styled Excel, opens DocuSeal '
+        'submission, notifies approvers), `approve`/`reject` (records the caller\'s '
+        'signature; M-of-N quorum flips the run to approved), and `mark-paid` '
+        '(locks all documents immutably).\n\n'
+        '## Webhooks\n'
+        '- `POST /api/docuseal/webhook/` — DocuSeal signature completion\n'
+        '- `POST /api/pesapal/ipn/` — PesaPal payment notifications\n'
+        '- `GET|POST /api/one-tap/{token}/` — single-use approval links sent over SMS/WhatsApp/email'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SCHEMA_PATH_PREFIX': '/api/',
 }
 
 # Service key for dashboard API calls (set in environment)

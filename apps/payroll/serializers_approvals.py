@@ -43,6 +43,16 @@ class PayrollApprovalSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ShareRequestSerializer(serializers.Serializer):
+    """Body for the share-to-email endpoint."""
+    module = serializers.ChoiceField(choices=['payroll'], default='payroll')
+    object_id = serializers.UUIDField(help_text='Payroll run id')
+    format = serializers.ChoiceField(choices=['pdf', 'excel'], default='pdf')
+    recipients = serializers.ListField(child=serializers.EmailField())
+    message = serializers.CharField(required=False, allow_blank=True)
+    document_title = serializers.CharField(required=False, allow_blank=True)
+
+
 class PayrollDocumentSerializer(serializers.ModelSerializer):
     download_url = serializers.SerializerMethodField()
 

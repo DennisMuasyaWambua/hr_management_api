@@ -3,6 +3,9 @@ Payroll approvals, documents, DocuSeal webhook, and the share-to-email API.
 All endpoints are NEW — nothing in views.py changes.
 """
 from django.http import FileResponse
+from drf_spectacular.utils import (OpenApiParameter, OpenApiResponse,
+                                   extend_schema)
+from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -19,7 +22,8 @@ from .approval_models import (ApproverConfig, PayrollApproval, PayrollApprover,
 from .models import PayrollRun
 from .serializers_approvals import (ApproverConfigSerializer,
                                     PayrollApprovalSerializer,
-                                    PayrollDocumentSerializer)
+                                    PayrollDocumentSerializer,
+                                    ShareRequestSerializer)
 
 
 class ApproverConfigViewSet(viewsets.ModelViewSet):
@@ -69,6 +73,22 @@ class PayrollWorkflowView(APIView):
     """
     permission_classes = [PayrollHROnly]
 
+    @extend_schema(
+        summary='Drive the payroll approval lifecycle',
+        description='Verbs: `submit` (draft/calculated → pending_approval; '
+                    'generates password-protected PDF + color Excel, opens the '
+                    'DocuSeal submission, notifies every configured approver '
+                    'via email + SMS one-tap link, runs the minimum-wage '
+                    'compliance check), `approve`/`reject` (records the '
+                    'caller\'s signed decision — requires X-User-Id; M-of-N '
+                    'quorum flips the run to approved), `mark-paid` (terminal; '
+                    'locks all documents immutably).',
+        parameters=[OpenApiParameter('verb', str, 'path',
+                                     enum=['submit', 'approve', 'reject', 'mark-paid'])],
+        request=None,
+        responses={200: OpenApiResponse(description='Workflow result'),
+                   409: OpenApiResponse(description='Invalid state transition')},
+    )
     def post(self, request, run_id, verb):
         try:
             run = PayrollRun.objects.get(id=run_id)
@@ -168,6 +188,16 @@ class DocuSealWebhook(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        summary='DocuSeal signature webhook',
+        description='Configure in DocuSeal with events form.completed / '
+                    'submission.completed. Optionally guarded by '
+                    'X-Docuseal-Signature matching DOCUSEAL_WEBHOOK_SECRET. '
+                    'Maps the signer back to a payroll approval via '
+                    'metadata.payroll_run_id + submitter email.',
+        request=None,
+        responses={200: OpenApiResponse(description='Approval recorded or event ignored')},
+    )
     def post(self, request):
         from django.conf import settings
         secret = getattr(settings, 'DOCUSEAL_WEBHOOK_SECRET', '')
@@ -211,6 +241,12 @@ class ShareView(APIView):
     """
     permission_classes = [PayrollHROnly]
 
+    @extend_schema(
+        summary='Share a document by email (auto-generate + attach)',
+        request=ShareRequestSerializer,
+        responses={200: OpenApiResponse(
+            description='{"sent": [{"recipient", "status"}]}')},
+    )
     def post(self, request):
         module = request.data.get('module', 'payroll')
         recipients = request.data.get('recipients', [])

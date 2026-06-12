@@ -3,6 +3,7 @@ Core API: RBAC management (frontend autonomy), notifications, one-tap
 approvals, audit log access.
 """
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -203,6 +204,12 @@ class OneTapApprovalView(APIView):
         except OneTapToken.DoesNotExist:
             return None
 
+    @extend_schema(
+        summary='Inspect a one-tap approval token',
+        request=None,
+        responses={200: OpenApiResponse(description='{"valid", "action", "object_id", "expires_at"}'),
+                   404: OpenApiResponse(description='Token invalid, used or expired')},
+    )
     def get(self, request, token):
         t = self._get_token(token)
         if t is None or not t.is_valid:
@@ -211,6 +218,16 @@ class OneTapApprovalView(APIView):
         return Response({'valid': True, 'action': t.action, 'object_id': t.object_id,
                          'expires_at': t.expires_at})
 
+    @extend_schema(
+        summary='Execute a one-tap approval (single use)',
+        description='The unexpired single-use token IS the credential — links '
+                    'are sent to approvers over SMS/WhatsApp/email. Executes '
+                    'exactly one predefined action (approve/reject overtime, '
+                    'leave recall or payroll run) and burns the token.',
+        request=None,
+        responses={200: OpenApiResponse(description='{"ok", "action", "result"}'),
+                   404: OpenApiResponse(description='Token invalid, used or expired')},
+    )
     def post(self, request, token):
         t = self._get_token(token)
         if t is None or not t.is_valid:
