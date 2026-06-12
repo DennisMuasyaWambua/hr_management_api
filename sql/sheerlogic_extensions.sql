@@ -361,6 +361,11 @@ create table if not exists geofence_violations (
 -- dedicated TimescaleDB instance (hypertable) and is queried through the
 -- Django API only.
 
+-- ---- Careers: data-protection consent (Kenya DPA 2019) ------------------------
+alter table candidates add column if not exists data_consent boolean not null default false;
+alter table candidates add column if not exists consent_at timestamptz;
+alter table candidates add column if not exists data_retention_months integer not null default 12;
+
 -- ============================================================================
 -- RLS — service-role full access; authenticated users scoped by company.
 -- Payroll tables: HR/admin roles ONLY (mirrors PayrollHROnly). Geofence
