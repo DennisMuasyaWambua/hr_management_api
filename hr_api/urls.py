@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/', include('apps.core.urls')),
     path('api/', include('apps.hr.urls')),
     path('api/', include('apps.attendance.urls')),
+    path('api/', include('apps.recruitment.urls')),
     # OpenAPI / Swagger documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'),

@@ -7,7 +7,12 @@ from .views import (
     PaymentHistoryViewSet,
     PesaPalConfigViewSet,
     PesaPalIPNWebhook,
-    IntaSendConfigViewSet
+    IntaSendConfigViewSet,
+    AuthLoginView,
+    MeView,
+    CompanyViewSet,
+    EmployeeProfileViewSet,
+    MyPayslipsView,
 )
 
 from .views_approvals import (ApproverConfigViewSet, DocuSealWebhook,
@@ -21,6 +26,8 @@ router.register('employee-payroll-status', EmployeePayrollStatusViewSet, basenam
 router.register('payment-history', PaymentHistoryViewSet, basename='payment-history')
 router.register('pesapal', PesaPalConfigViewSet, basename='pesapal-config')
 router.register('intasend', IntaSendConfigViewSet, basename='intasend-config')
+router.register('companies', CompanyViewSet, basename='company')
+router.register('all-employees', EmployeeProfileViewSet, basename='all-employees')
 
 # Approval workflow (additive — nothing above changes)
 router.register('approver-config', ApproverConfigViewSet, basename='approver-config')
@@ -29,6 +36,9 @@ router.register('payroll-documents', PayrollDocumentViewSet, basename='payroll-d
 
 urlpatterns = [
     path('api/', include(router.urls)),
+    path('api/auth/login/', AuthLoginView.as_view(), name='auth-login'),
+    path('api/me/', MeView.as_view(), name='me'),
+    path('api/me/payslips/', MyPayslipsView.as_view(), name='my-payslips'),
     path('api/pesapal/ipn/', PesaPalIPNWebhook.as_view(), name='pesapal-ipn'),
     path('api/payroll-workflow/<uuid:run_id>/<str:verb>/',
          PayrollWorkflowView.as_view(), name='payroll-workflow'),

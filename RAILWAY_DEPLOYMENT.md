@@ -22,15 +22,15 @@ python manage.py seed_statutory   # 2024/25 Kenyan rates + minimum wages (verify
 | `CORS_ALLOW_ALL_ORIGINS` | `False` in production |
 | `CORS_ALLOWED_ORIGINS` | comma-separated dashboard/PWA/careers origins (no paths) |
 
-### Database (Supabase Postgres) — required
+### Database (Railway PostgreSQL) — required
 | Variable | Value |
 |---|---|
-| `DB_ENGINE` | `postgresql` (anything else falls back to SQLite!) |
-| `DB_NAME` | `postgres` |
-| `DB_USER` | `postgres.mcbbtrrhqweypfnlzwht` |
-| `DB_PASSWORD` | (Supabase database password) |
-| `DB_HOST` | `aws-0-eu-central-1.pooler.supabase.com` |
-| `DB_PORT` | `5432` (session pooler — required for `migrate`; 6543 transaction pooler breaks prepared statements) |
+| `DB_ENGINE` | `postgresql` |
+| `DB_NAME` | `railway` |
+| `DB_USER` | `postgres` |
+| `DB_PASSWORD` | `nsxUftcRRqCKhFutpdCNXnFhYWROCHXV` |
+| `DB_HOST` | `thomas.proxy.rlwy.net` |
+| `DB_PORT` | `14645` |
 
 ### Service auth — required
 | Variable | Note |

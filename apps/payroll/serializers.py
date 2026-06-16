@@ -58,6 +58,41 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'employee_number']
 
 
+class EmployeeProfileListSerializer(serializers.ModelSerializer):
+    """Full employee profile for dashboard listing."""
+
+    class Meta:
+        model = EmployeeProfile
+        fields = [
+            'id', 'user_id', 'employee_number', 'company_id',
+            'department', 'job_title', 'employment_type', 'employment_status',
+            'manager_id', 'start_date', 'end_date', 'salary', 'payment_method',
+            'bank_name', 'bank_account', 'mpesa_number', 'airtel_number',
+            'nssf_number', 'nhif_number', 'kra_pin',
+            'id_number', 'date_of_birth', 'gender', 'nationality',
+            'next_of_kin_name', 'next_of_kin_phone', 'next_of_kin_relationship',
+            'created_at', 'updated_at', 'is_deleted', 'tenant_id',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    """Full company serializer for dashboard."""
+
+    class Meta:
+        model = Company
+        fields = [
+            'id', 'tenant_id', 'name', 'logo_url', 'industry', 'country',
+            'city', 'primary_color', 'contact_email', 'is_active',
+            'background_check_required', 'background_check_blocks_hiring',
+            'company_bank_name', 'company_bank_account', 'company_bank_branch',
+            'mpesa_paybill_number', 'mpesa_till_number',
+            'pesapal_consumer_key', 'pesapal_consumer_secret', 'pesapal_ipn_id',
+            'pesapal_sandbox', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class PayrollRecordSerializer(serializers.ModelSerializer):
     """Serializer for payroll records matching Supabase schema"""
     employee_number = serializers.CharField(
@@ -77,6 +112,25 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
             'gross_salary', 'paye', 'nssf', 'nhif', 'helb',
             'other_deductions', 'total_deductions', 'net_salary',
             'payment_method', 'payment_status', 'payment_reference', 'paid_at'
+        ]
+
+
+class MyPayslipSerializer(serializers.ModelSerializer):
+    """Employee self-service view of a single payslip (PWA)."""
+    total_deductions = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    period_month = serializers.IntegerField(source='payroll_run.period_month', read_only=True)
+    period_year = serializers.IntegerField(source='payroll_run.period_year', read_only=True)
+    run_status = serializers.CharField(source='payroll_run.status', read_only=True)
+
+    class Meta:
+        model = PayrollRecord
+        fields = [
+            'id', 'gross_salary', 'paye', 'nssf', 'nhif', 'helb',
+            'other_deductions', 'total_deductions', 'net_salary',
+            'payment_method', 'payment_status', 'paid_at', 'created_at',
+            'period_month', 'period_year', 'run_status',
         ]
         read_only_fields = ['id', 'employee_number', 'employee_name', 'total_deductions']
 

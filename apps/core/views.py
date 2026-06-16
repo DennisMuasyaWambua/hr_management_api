@@ -9,12 +9,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import (NotificationLog, NotificationTemplate, OneTapToken,
-                     Permission, Role, RolePermission, ServiceAuditLog,
-                     UserRoleAssignment)
+from .models import (AppUser, NotificationLog, NotificationTemplate,
+                     OneTapToken, Permission, Role, RolePermission,
+                     ServiceAuditLog, UserRoleAssignment)
 from .permissions import (HasModulePermission, IsHighestRank,
                           request_company_id, request_user_id)
-from .serializers import (NotificationLogSerializer,
+from .serializers import (AppUserSerializer, NotificationLogSerializer,
                           NotificationTemplateSerializer, PermissionSerializer,
                           RolePermissionSerializer, RoleSerializer,
                           SendNotificationSerializer,
@@ -29,6 +29,23 @@ def _scope_company(qs, request):
         from django.db.models import Q
         return qs.filter(Q(company_id=company_id) | Q(company_id__isnull=True))
     return qs
+
+
+class AppUserViewSet(viewsets.ModelViewSet):
+    """User directory (HR admins, managers, employees) — replaces direct
+    Supabase queries against the old `users` table. Only role/is_active are
+    editable from the dashboard; identity fields are managed by login."""
+    serializer_class = AppUserSerializer
+    permission_classes = [IsHighestRank]
+    http_method_names = ['get', 'put', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        qs = AppUser.objects.filter(is_deleted=False)
+        company_id = (self.request.query_params.get('companyId') or
+                     self.request.query_params.get('company_id'))
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        return qs.order_by('full_name')
 
 
 class RoleViewSet(viewsets.ModelViewSet):

@@ -3,7 +3,7 @@ HR API: allowances, deductions, overtime, reimbursements, statutory rates,
 minimum wage compliance, disciplinary, exits, leave recalls, certificates.
 """
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import status, views, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -12,19 +12,29 @@ from apps.core.permissions import (HasModulePermission, IsHighestRank,
                                    request_company_id, request_user_id)
 from apps.core.services import notifications as notif
 
-from .models import (AllowanceType, ComplianceAlert, DeductionType,
-                     DisciplinaryRecord, EmployeeAllowance, EmployeeCertificate,
-                     EmployeeDeduction, EmployeeExit, ExitClearanceItem,
-                     LeaveRecall, MinimumWage, OvertimeRequest, Reimbursement,
-                     StatutoryRate)
-from .serializers import (AllowanceTypeSerializer, ComplianceAlertSerializer,
+from .models import (AllowanceType, Announcement, BackgroundCheck,
+                     ComplianceAlert, DeductionType, DisciplinaryRecord,
+                     EmployeeAllowance, EmployeeCertificate,
+                     EmployeeDeduction, EmployeeExit,
+                     EmployeeOnboardingDocument, ExitClearanceItem,
+                     KpiAssignment, LeaveBalance, LeaveRecall, LeaveRequest,
+                     MedicalRecord, MinimumWage, OvertimeRequest,
+                     PerformanceReview, Reimbursement, StatutoryRate,
+                     TrainingEnrollment, TrainingSession)
+from .serializers import (AllowanceTypeSerializer, AnnouncementSerializer,
+                          BackgroundCheckSerializer, ComplianceAlertSerializer,
                           DeductionTypeSerializer, DisciplinaryRecordSerializer,
                           EmployeeAllowanceSerializer,
                           EmployeeCertificateSerializer,
                           EmployeeDeductionSerializer, EmployeeExitSerializer,
-                          ExitClearanceItemSerializer, LeaveRecallSerializer,
+                          EmployeeOnboardingDocumentSerializer,
+                          ExitClearanceItemSerializer, KpiAssignmentSerializer,
+                          LeaveBalanceSerializer, LeaveRecallSerializer,
+                          LeaveRequestSerializer, MedicalRecordSerializer,
                           MinimumWageSerializer, OvertimeRequestSerializer,
-                          ReimbursementSerializer, StatutoryRateSerializer)
+                          PerformanceReviewSerializer, ReimbursementSerializer,
+                          StatutoryRateSerializer, TrainingEnrollmentSerializer,
+                          TrainingSessionSerializer)
 
 
 class CompanyScopedViewSet(viewsets.ModelViewSet):
@@ -380,6 +390,280 @@ class EmployeeCertificateViewSet(CompanyScopedViewSet):
                                         expiry_date__isnull=False,
                                         expiry_date__lte=cutoff)
         return Response(self.get_serializer(qs, many=True).data)
+
+
+# --- Leave & announcements (employee self-service, PWA) --------------------
+
+class LeaveRequestViewSet(CompanyScopedViewSet):
+    queryset = LeaveRequest.objects.filter(is_deleted=False)
+    serializer_class = LeaveRequestSerializer
+    rbac_module = 'leave'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        req_status = self.request.query_params.get('status')
+        if req_status:
+            qs = qs.filter(status=req_status)
+        leave_type = self.request.query_params.get('leave_type')
+        if leave_type:
+            qs = qs.filter(leave_type=leave_type)
+        return qs.order_by('-created_at')
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        leave = serializer.instance
+        # Notify HR/admins for this company — fire-and-forget, mirrors
+        # LeaveRecallViewSet's manager notification. No-ops with a warning
+        # log if the 'leave.requested' template hasn't been seeded yet.
+        if leave.company_id:
+            from apps.core.models import AppUser
+            recipients = [
+                {'email': u.email} for u in
+                AppUser.objects.filter(company_id=leave.company_id,
+                                       role__in=['hr_admin', 'super_admin'],
+                                       is_deleted=False)[:10]
+            ]
+            if recipients:
+                notif.notify('leave.requested', recipients, {
+                    'leave_type': leave.leave_type,
+                    'start_date': str(leave.start_date),
+                    'end_date': str(leave.end_date),
+                    'days_requested': str(leave.days_requested),
+                    'reason': leave.reason,
+                }, channels=('email',), company_id=leave.company_id,
+                tenant_id=leave.tenant_id, related=('leave', leave.id))
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        leave = self.get_object()
+        if leave.status != 'pending':
+            return Response({'error': f'Already {leave.status}'},
+                            status=status.HTTP_409_CONFLICT)
+        leave.approve(request_user_id(request))
+        ServiceAuditLog.log('leave.approved', request=request,
+                            object_type='LeaveRequest', object_id=str(leave.id),
+                            company_id=leave.company_id)
+        return Response(self.get_serializer(leave).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        leave = self.get_object()
+        if leave.status != 'pending':
+            return Response({'error': f'Already {leave.status}'},
+                            status=status.HTTP_409_CONFLICT)
+        leave.reject(request_user_id(request), request.data.get('rejection_reason', ''))
+        return Response(self.get_serializer(leave).data)
+
+
+class LeaveBalanceViewSet(CompanyScopedViewSet):
+    http_method_names = ['get', 'head', 'options']
+    queryset = LeaveBalance.objects.filter(is_deleted=False)
+    serializer_class = LeaveBalanceSerializer
+    rbac_module = 'leave'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        year = self.request.query_params.get('year')
+        if year:
+            qs = qs.filter(year=year)
+        return qs
+
+
+class AnnouncementViewSet(CompanyScopedViewSet):
+    http_method_names = ['get', 'post', 'head', 'options']
+    queryset = Announcement.objects.filter(is_deleted=False)
+    serializer_class = AnnouncementSerializer
+    rbac_module = 'announcements'
+
+    def get_queryset(self):
+        from django.db.models import Q
+        qs = super().get_queryset().filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.now()))
+        department = self.request.query_params.get('department')
+        if department:
+            qs = qs.filter(Q(department__isnull=True) | Q(department=department))
+        return qs
+
+
+# --- Medical, background checks, performance, training ---------------------
+
+class MedicalRecordViewSet(CompanyScopedViewSet):
+    queryset = MedicalRecord.objects.filter(is_deleted=False)
+    serializer_class = MedicalRecordSerializer
+    rbac_module = 'medical'
+
+
+class BackgroundCheckViewSet(CompanyScopedViewSet):
+    queryset = BackgroundCheck.objects.filter(is_deleted=False)
+    serializer_class = BackgroundCheckSerializer
+    rbac_module = 'background_checks'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        candidate_id = self.request.query_params.get('candidate_id')
+        if candidate_id:
+            qs = qs.filter(candidate_id=candidate_id)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        check_type = self.request.query_params.get('check_type')
+        if check_type:
+            qs = qs.filter(check_type=check_type)
+        expiring_within_days = self.request.query_params.get('expiring_within_days')
+        if expiring_within_days:
+            cutoff = timezone.localdate() + timezone.timedelta(days=int(expiring_within_days))
+            qs = qs.filter(expiry_date__isnull=False, expiry_date__lte=cutoff)
+        return qs.order_by('-requested_at')
+
+    def perform_create(self, serializer):
+        kwargs = {}
+        company_id = request_company_id(self.request)
+        if company_id:
+            kwargs['company_id'] = serializer.validated_data.get('company_id') or company_id
+        kwargs['requested_by'] = request_user_id(self.request)
+        serializer.save(**kwargs)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted', 'updated_at'])
+
+    @action(detail=True, methods=['put', 'patch'])
+    def review(self, request, pk=None):
+        """Review/complete a check: status must be passed/failed/flagged."""
+        check = self.get_object()
+        if request.data.get('status') not in ('passed', 'failed', 'flagged'):
+            return Response({'error': 'status must be passed, failed, or flagged'}, status=400)
+        for field in ('status', 'result_summary', 'clearance_date', 'expiry_date', 'flags', 'notes'):
+            if field in request.data:
+                setattr(check, field, request.data[field])
+        check.completed_at = timezone.now()
+        check.reviewed_by = request_user_id(request)
+        check.save()
+        return Response(self.get_serializer(check).data)
+
+
+class KpiAssignmentViewSet(CompanyScopedViewSet):
+    queryset = KpiAssignment.objects.filter(is_deleted=False)
+    serializer_class = KpiAssignmentSerializer
+    rbac_module = 'performance'
+
+
+class PerformanceReviewViewSet(CompanyScopedViewSet):
+    queryset = PerformanceReview.objects.filter(is_deleted=False)
+    serializer_class = PerformanceReviewSerializer
+    rbac_module = 'performance'
+
+    def perform_create(self, serializer):
+        kwargs = {}
+        company_id = request_company_id(self.request)
+        if company_id:
+            kwargs['company_id'] = serializer.validated_data.get('company_id') or company_id
+        if not serializer.validated_data.get('reviewer_id'):
+            kwargs['reviewer_id'] = request_user_id(self.request)
+        serializer.save(**kwargs)
+
+
+class TrainingSessionViewSet(CompanyScopedViewSet):
+    queryset = TrainingSession.objects.filter(is_deleted=False)
+    serializer_class = TrainingSessionSerializer
+    rbac_module = 'training'
+
+    @action(detail=True, methods=['post'])
+    def enrol(self, request, pk=None):
+        """Bulk-enrol employees. Body: {"employee_ids": [...]}"""
+        session = self.get_object()
+        created = []
+        for emp_id in request.data.get('employee_ids', []):
+            obj, was_created = TrainingEnrollment.objects.get_or_create(
+                session=session, employee_id=emp_id)
+            if was_created:
+                created.append(str(emp_id))
+        return Response({'enrolled': created}, status=201)
+
+
+class TrainingEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
+    """Per-employee training history — nests session fields so the
+    dashboard's TabTraining gets one flat row per enrollment."""
+    serializer_class = TrainingEnrollmentSerializer
+    permission_classes = [HasModulePermission]
+    rbac_module = 'training'
+
+    def get_queryset(self):
+        qs = TrainingEnrollment.objects.select_related('session').filter(
+            session__is_deleted=False)
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        return qs.order_by('-session__start_date')
+
+
+class EmployeeOnboardingDocumentViewSet(viewsets.ModelViewSet):
+    serializer_class = EmployeeOnboardingDocumentSerializer
+    permission_classes = [HasModulePermission]
+    rbac_module = 'onboarding'
+
+    def get_queryset(self):
+        qs = EmployeeOnboardingDocument.objects.all()
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        return qs
+
+
+class OnboardingSummaryView(views.APIView):
+    """
+    New hires (last 90 days) + their onboarding-document completion, for
+    the dashboard's Onboarding tab. Computed from EmployeeProfile +
+    EmployeeOnboardingDocument — there's no single 'onboarding' table.
+    """
+    permission_classes = [HasModulePermission]
+    rbac_module = 'onboarding'
+
+    def get(self, request):
+        from apps.core.models import AppUser
+        from apps.payroll.models import EmployeeProfile
+
+        company_id = request_company_id(request)
+        cutoff = timezone.localdate() - timezone.timedelta(days=90)
+        employees = EmployeeProfile.objects.filter(
+            is_deleted=False, start_date__gte=cutoff)
+        if company_id:
+            employees = employees.filter(company_id=company_id)
+        employees = list(employees)
+
+        emp_ids = [e.id for e in employees]
+        users_by_emp = {u.employee_id: u for u in
+                        AppUser.objects.filter(employee_id__in=emp_ids, is_deleted=False)}
+        docs_by_emp = {}
+        for d in EmployeeOnboardingDocument.objects.filter(employee_id__in=emp_ids):
+            docs_by_emp.setdefault(d.employee_id, []).append(d)
+
+        n_doc_types = len(EmployeeOnboardingDocument.DOC_TYPES)
+        results = []
+        for e in employees:
+            docs = docs_by_emp.get(e.id, [])
+            verified = sum(1 for d in docs if d.status == 'verified')
+            uploaded = sum(1 for d in docs if d.status in ('uploaded', 'verified'))
+            u = users_by_emp.get(e.id)
+            results.append({
+                'id': str(e.id),
+                'employee_number': e.employee_number,
+                'job_title': e.job_title,
+                'department': e.department,
+                'start_date': str(e.start_date),
+                'employment_status': e.employment_status,
+                'user': {
+                    'full_name': u.full_name if u else e.job_title,
+                    'email': u.email if u else '',
+                    'avatar_url': u.avatar_url if u else None,
+                },
+                'company': {'name': ''},
+                'doc_verified': verified,
+                'doc_uploaded': uploaded,
+                'doc_required': n_doc_types,
+                'doc_pct': round(100 * verified / n_doc_types) if n_doc_types else 0,
+            })
+        return Response(results)
 
 
 def _one_tap_url(token):

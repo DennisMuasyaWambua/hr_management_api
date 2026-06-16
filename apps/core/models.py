@@ -8,6 +8,7 @@ them directly where needed.
 import secrets
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -42,8 +43,20 @@ class Role(models.Model):
 
     class Meta:
         db_table = 'rbac_roles'
-        unique_together = [('company_id', 'slug')]
         ordering = ['rank']
+        constraints = [
+            # Unique per company (handles NULL company_id for global/system roles)
+            models.UniqueConstraint(
+                fields=['slug'],
+                condition=models.Q(company_id=None),
+                name='unique_global_role_slug',
+            ),
+            models.UniqueConstraint(
+                fields=['company_id', 'slug'],
+                condition=~models.Q(company_id=None),
+                name='unique_company_role_slug',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.name} ({'global' if not self.company_id else self.company_id})"
@@ -238,3 +251,72 @@ class OneTapToken(models.Model):
     @property
     def is_valid(self):
         return self.used_at is None and self.expires_at > timezone.now()
+
+
+# ---------------------------------------------------------------------------
+# Identity: directory of platform users + employee/OTP login
+# ---------------------------------------------------------------------------
+
+class AppUser(models.Model):
+    """
+    Directory of platform users (HR admins, managers, employees) — mirrors
+    the original Supabase `users` table (which doesn't exist on Railway;
+    `employee_profiles.user_id` and some raw-SQL joins elsewhere still
+    expect it). Distinct from Django's `auth.User`, which only backs
+    password/token login; `auth_user` links the two when someone actually
+    logs in. `AuthLoginView`/OTP login read `request.user.hr_profile`
+    (the reverse of `auth_user`) for role/company_id/employee_id — before
+    this model existed that lookup was always None, so every login
+    silently defaulted to role='super_admin' with no company.
+    """
+    ROLES = [
+        ('super_admin', 'Super Admin'), ('hr_admin', 'HR Admin'),
+        ('manager', 'Manager'), ('employee', 'Employee'),
+    ]
+    LANGUAGES = [('en', 'English'), ('sw', 'Swahili')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
+    full_name = models.CharField(max_length=200)
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=ROLES, default='employee')
+    company_id = models.UUIDField(null=True, blank=True, db_index=True)
+    avatar_url = models.TextField(null=True, blank=True)
+    phone = models.CharField(max_length=30, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    preferred_language = models.CharField(max_length=5, choices=LANGUAGES, default='en')
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    employee_id = models.UUIDField(null=True, blank=True, db_index=True)
+    auth_user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='hr_profile')
+
+    class Meta:
+        db_table = 'users'
+
+    def __str__(self):
+        return f'{self.full_name} <{self.email}>'
+
+
+class OTPToken(models.Model):
+    """
+    Email OTP for passwordless login (PWA's primary login path — matches
+    the old `supabase.auth.signInWithOtp({email})`/`verifyOtp` behaviour:
+    email-based, not SMS, even though Africa's Talking SMS is available).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(db_index=True)
+    code = models.CharField(max_length=8)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'otp_tokens'
+
+    @property
+    def is_valid(self):
+        return self.consumed_at is None and self.expires_at > timezone.now() and self.attempts < 5

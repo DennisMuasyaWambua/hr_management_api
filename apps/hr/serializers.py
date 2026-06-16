@@ -1,10 +1,14 @@
 from rest_framework import serializers
 
-from .models import (AllowanceType, ComplianceAlert, DeductionType,
-                     DisciplinaryRecord, EmployeeAllowance, EmployeeCertificate,
-                     EmployeeDeduction, EmployeeExit, ExitClearanceItem,
-                     LeaveRecall, MinimumWage, OvertimeRequest, Reimbursement,
-                     StatutoryRate)
+from .models import (AllowanceType, Announcement, BackgroundCheck,
+                     ComplianceAlert, DeductionType, DisciplinaryRecord,
+                     EmployeeAllowance, EmployeeCertificate,
+                     EmployeeDeduction, EmployeeExit,
+                     EmployeeOnboardingDocument, ExitClearanceItem,
+                     KpiAssignment, LeaveBalance, LeaveRecall, LeaveRequest,
+                     MedicalRecord, MinimumWage, OvertimeRequest,
+                     PerformanceReview, Reimbursement, StatutoryRate,
+                     TrainingEnrollment, TrainingSession)
 
 
 class AllowanceTypeSerializer(serializers.ModelSerializer):
@@ -103,4 +107,81 @@ class EmployeeCertificateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EmployeeCertificate
+        fields = '__all__'
+
+
+class LeaveRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveRequest
+        fields = '__all__'
+        read_only_fields = ['status', 'approved_by', 'approved_at', 'rejection_reason']
+
+
+class LeaveBalanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveBalance
+        fields = '__all__'
+
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    is_expired = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Announcement
+        fields = '__all__'
+
+
+class MedicalRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MedicalRecord
+        fields = '__all__'
+
+
+class BackgroundCheckSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BackgroundCheck
+        fields = '__all__'
+        read_only_fields = ['requested_at']
+
+
+class KpiAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KpiAssignment
+        fields = '__all__'
+
+
+class PerformanceReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PerformanceReview
+        fields = '__all__'
+
+
+class TrainingSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrainingSession
+        fields = '__all__'
+
+
+class TrainingEnrollmentSerializer(serializers.ModelSerializer):
+    """Nests the session fields the dashboard's TabTraining expects
+    (title/trainer_name/start_date/.../is_mandatory) alongside attendance."""
+    title = serializers.CharField(source='session.title', read_only=True)
+    description = serializers.CharField(source='session.description', read_only=True)
+    trainer_name = serializers.CharField(source='session.trainer_name', read_only=True)
+    start_date = serializers.DateField(source='session.start_date', read_only=True)
+    end_date = serializers.DateField(source='session.end_date', read_only=True)
+    is_mandatory = serializers.BooleanField(source='session.is_mandatory', read_only=True)
+    department = serializers.CharField(source='session.department', read_only=True)
+
+    class Meta:
+        model = TrainingEnrollment
+        fields = ['id', 'session', 'employee_id', 'attendance_status', 'score',
+                  'certificate_url', 'title', 'description', 'trainer_name',
+                  'start_date', 'end_date', 'is_mandatory', 'department',
+                  'created_at', 'updated_at']
+
+
+class EmployeeOnboardingDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmployeeOnboardingDocument
         fields = '__all__'

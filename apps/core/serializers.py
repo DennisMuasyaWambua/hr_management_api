@@ -1,7 +1,17 @@
 from rest_framework import serializers
 
-from .models import (NotificationLog, NotificationTemplate, Permission, Role,
-                     RolePermission, ServiceAuditLog, UserRoleAssignment)
+from .models import (AppUser, NotificationLog, NotificationTemplate,
+                     Permission, Role, RolePermission, ServiceAuditLog,
+                     UserRoleAssignment)
+
+
+class AppUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AppUser
+        fields = ['id', 'full_name', 'email', 'role', 'avatar_url', 'phone',
+                  'is_active', 'preferred_language', 'last_login_at',
+                  'company_id', 'employee_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'email', 'employee_id', 'created_at', 'updated_at']
 
 
 class PermissionSerializer(serializers.ModelSerializer):

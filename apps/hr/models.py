@@ -368,3 +368,254 @@ class EmployeeCertificate(TenantStamped):
     @property
     def is_expired(self):
         return bool(self.expiry_date and self.expiry_date < timezone.localdate())
+
+
+# ---------------------------------------------------------------------------
+# Employee self-service (leave requests/balances, announcements) — replaces
+# direct-Supabase tables previously queried by the PWA app.
+# ---------------------------------------------------------------------------
+
+LEAVE_TYPES = [
+    ('annual', 'Annual'), ('sick', 'Sick'), ('maternity', 'Maternity'),
+    ('paternity', 'Paternity'), ('study', 'Study'),
+    ('compassionate', 'Compassionate'), ('unpaid', 'Unpaid'),
+    ('adoption', 'Adoption'), ('family', 'Family'),
+]
+
+
+class LeaveRequest(TenantStamped):
+    """Employee-initiated leave request (mirrors Supabase 'leaves' table)."""
+    STATUS = [('pending', 'Pending'), ('approved', 'Approved'),
+              ('rejected', 'Rejected'), ('cancelled', 'Cancelled')]
+
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(db_index=True)
+    leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    days_requested = models.DecimalField(max_digits=5, decimal_places=1)
+    reason = models.TextField(blank=True, default='')
+    supporting_doc_url = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS, default='pending')
+    approved_by = models.UUIDField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'leaves'
+        ordering = ['-created_at']
+
+    def approve(self, approver_user_id):
+        self.status = 'approved'
+        self.approved_by = approver_user_id
+        self.approved_at = timezone.now()
+        self.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+
+    def reject(self, approver_user_id, reason=''):
+        self.status = 'rejected'
+        self.approved_by = approver_user_id
+        self.approved_at = timezone.now()
+        self.rejection_reason = reason
+        self.save(update_fields=['status', 'approved_by', 'approved_at',
+                                 'rejection_reason', 'updated_at'])
+
+
+class LeaveBalance(TenantStamped):
+    """Per-employee, per-year, per-type leave balance (mirrors 'leave_balances')."""
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(db_index=True)
+    leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
+    year = models.IntegerField(db_index=True)
+    total_days = models.DecimalField(max_digits=5, decimal_places=1, default=0)
+    used_days = models.DecimalField(max_digits=5, decimal_places=1, default=0)
+    remaining_days = models.DecimalField(max_digits=5, decimal_places=1, default=0)
+
+    class Meta:
+        db_table = 'leave_balances'
+        unique_together = [('employee_id', 'leave_type', 'year')]
+        ordering = ['-year', 'leave_type']
+
+
+class Announcement(TenantStamped):
+    """Company/department-scoped notice board (mirrors 'announcements')."""
+    PRIORITIES = [('normal', 'Normal'), ('urgent', 'Urgent')]
+
+    is_deleted = models.BooleanField(default=False)
+    department = models.CharField(max_length=120, null=True, blank=True)
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    priority = models.CharField(max_length=10, choices=PRIORITIES, default='normal')
+    created_by = models.UUIDField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'announcements'
+        ordering = ['-created_at']
+
+    @property
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at < timezone.now())
+
+
+# ---------------------------------------------------------------------------
+# Medical, background checks, performance, training — replaces direct-
+# Supabase tables previously queried by the dashboard. None of these had a
+# database.types.ts entry by the time this was written (added to Supabase
+# after the last type-gen run), so field names are inferred from the
+# dashboard components/hooks that already consume them, not a generated
+# schema — worth a sanity check against real data once seeded.
+# ---------------------------------------------------------------------------
+
+class MedicalRecord(TenantStamped):
+    FITNESS = [('fit', 'Fit'), ('fit_with_conditions', 'Fit with conditions'),
+              ('unfit', 'Unfit')]
+
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(db_index=True)
+    record_type = models.CharField(max_length=100)
+    file_url = models.TextField(blank=True, default='')
+    fitness_status = models.CharField(max_length=20, choices=FITNESS, default='fit')
+    issued_by = models.CharField(max_length=200, null=True, blank=True)
+    issued_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'medical_records'
+        ordering = ['-issued_date']
+
+
+class BackgroundCheck(TenantStamped):
+    CHECK_TYPES = [('criminal', 'Criminal'), ('credit', 'Credit'),
+                   ('employment', 'Employment'), ('education', 'Education'),
+                   ('professional', 'Professional')]
+    STATUSES = [('pending', 'Pending'), ('in_progress', 'In progress'),
+                ('completed', 'Completed'), ('passed', 'Passed'),
+                ('failed', 'Failed'), ('flagged', 'Flagged')]
+
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(null=True, blank=True, db_index=True)
+    candidate_id = models.UUIDField(null=True, blank=True, db_index=True)
+    check_type = models.CharField(max_length=20, choices=CHECK_TYPES)
+    status = models.CharField(max_length=20, choices=STATUSES, default='pending')
+    requested_by = models.UUIDField(null=True, blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    document_url = models.TextField(null=True, blank=True)
+    document_uploaded_at = models.DateTimeField(null=True, blank=True)
+    provider_name = models.CharField(max_length=200, null=True, blank=True)
+    provider_reference = models.CharField(max_length=200, null=True, blank=True)
+    provider_response = models.JSONField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.UUIDField(null=True, blank=True)
+    result_summary = models.TextField(null=True, blank=True)
+    clearance_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    flags = models.JSONField(default=list, blank=True)
+    notes = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'background_checks'
+        ordering = ['-requested_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(employee_id__isnull=False) | models.Q(candidate_id__isnull=False),
+                name='background_check_has_subject',
+            )
+        ]
+
+
+class KpiAssignment(TenantStamped):
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(db_index=True)
+    template_id = models.UUIDField(null=True, blank=True)
+    period_quarter = models.IntegerField()
+    period_year = models.IntegerField()
+    targets = models.JSONField(default=list, blank=True)
+    scores = models.JSONField(default=list, blank=True)
+    final_score = models.FloatField(null=True, blank=True)
+    reviewed_by = models.UUIDField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'kpi_assignments'
+        ordering = ['-period_year', '-period_quarter']
+
+
+class PerformanceReview(TenantStamped):
+    is_deleted = models.BooleanField(default=False)
+    employee_id = models.UUIDField(db_index=True)
+    reviewer_id = models.UUIDField(null=True, blank=True)
+    period = models.CharField(max_length=50)
+    rating = models.PositiveSmallIntegerField()
+    strengths = models.TextField(null=True, blank=True)
+    improvements = models.TextField(null=True, blank=True)
+    promotion_recommended = models.BooleanField(default=False)
+    award_given = models.CharField(max_length=200, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'performance_reviews'
+        ordering = ['-created_at']
+
+
+class TrainingSession(TenantStamped):
+    is_deleted = models.BooleanField(default=False)
+    title = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+    trainer_name = models.CharField(max_length=200)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_mandatory = models.BooleanField(default=False)
+    department = models.CharField(max_length=120, null=True, blank=True)
+
+    class Meta:
+        db_table = 'training_sessions'
+        ordering = ['-start_date']
+
+
+class TrainingEnrollment(models.Model):
+    ATTENDANCE = [('enrolled', 'Enrolled'), ('attended', 'Attended'),
+                  ('completed', 'Completed'), ('absent', 'Absent'),
+                  ('cancelled', 'Cancelled')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    session = models.ForeignKey(TrainingSession, on_delete=models.CASCADE,
+                                related_name='enrollments', db_column='session_id')
+    employee_id = models.UUIDField(db_index=True)
+    attendance_status = models.CharField(max_length=20, choices=ATTENDANCE, default='enrolled')
+    score = models.FloatField(null=True, blank=True)
+    certificate_url = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'training_enrollments'
+        unique_together = [('session', 'employee_id')]
+
+
+class EmployeeOnboardingDocument(models.Model):
+    """
+    Tracks the fixed 6-document onboarding checklist the dashboard's
+    Onboarding tab displays. This is a new feature with no prior Supabase
+    schema — the doc_type list mirrors the checklist labels already in
+    OnboardingClient (contract, ID, NSSF/NHIF, KRA PIN, bank details).
+    """
+    DOC_TYPES = [('contract', 'Contract'), ('id', 'ID'), ('nssf', 'NSSF'),
+                 ('nhif', 'NHIF'), ('kra_pin', 'KRA PIN'),
+                 ('bank_details', 'Bank details')]
+    STATUSES = [('missing', 'Missing'), ('uploaded', 'Uploaded'),
+                ('verified', 'Verified')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    employee_id = models.UUIDField(db_index=True)
+    doc_type = models.CharField(max_length=20, choices=DOC_TYPES)
+    status = models.CharField(max_length=20, choices=STATUSES, default='missing')
+    file_url = models.TextField(null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verified_by = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'employee_onboarding_documents'
+        unique_together = [('employee_id', 'doc_type')]

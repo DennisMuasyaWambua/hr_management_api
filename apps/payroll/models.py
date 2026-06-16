@@ -45,7 +45,6 @@ class Company(models.Model):
 
     class Meta:
         db_table = 'companies'
-        managed = False  # Don't let Django manage this table
         verbose_name_plural = 'Companies'
 
     def __str__(self):
@@ -129,7 +128,6 @@ class EmployeeProfile(models.Model):
 
     class Meta:
         db_table = 'employee_profiles'
-        managed = False  # Don't let Django manage this table
 
     def __str__(self):
         return f"{self.employee_number} - {self.job_title}"
@@ -181,7 +179,6 @@ class PayrollRun(models.Model):
 
     class Meta:
         db_table = 'payroll_runs'
-        managed = False
         ordering = ['-period_year', '-period_month']
 
     def __str__(self):
@@ -250,7 +247,6 @@ class PayrollRecord(models.Model):
 
     class Meta:
         db_table = 'payroll_records'
-        managed = False
 
     def __str__(self):
         return f"{self.employee.employee_number} - {self.payroll_run.period_display}"
@@ -304,7 +300,6 @@ class PaymentBatch(models.Model):
 
     class Meta:
         db_table = 'payment_batches'
-        managed = False  # Create in Supabase first
 
     def __str__(self):
         return f"Batch {self.payment_method} - {self.status}"

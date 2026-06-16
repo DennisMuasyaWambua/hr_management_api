@@ -1,7 +1,9 @@
-from rest_framework import viewsets, status, views
+from rest_framework import viewsets, status, views, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import authenticate, get_user_model
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -10,20 +12,187 @@ from django.utils.decorators import method_decorator
 from decimal import Decimal
 import logging
 
+from apps.core.models import ServiceAuditLog
+from apps.core.permissions import request_user_id
+
 from .models import PayrollRun, PayrollRecord, PaymentBatch, EmployeeProfile, Company
 from .serializers import (
     PayrollRunListSerializer, PayrollRunDetailSerializer,
     PayrollRunCreateSerializer, PayrollRecordSerializer,
     DisbursePayrollSerializer, PaymentBatchSerializer,
     EmployeePaymentSerializer, EmployeePayrollStatusSerializer,
-    DepartmentPaymentStatusSerializer, PaymentHistoryRecordSerializer
+    DepartmentPaymentStatusSerializer, PaymentHistoryRecordSerializer,
+    CompanySerializer, EmployeeProfileListSerializer, MyPayslipSerializer,
 )
 from .services.tax_calculator import KenyanTaxCalculator
 from .services.pesapal import PesaPalService
 from .services.intasend import IntaSendService
 from .tasks import process_payment_batch, process_ipn_callback
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+class AuthLoginView(views.APIView):
+    """
+    Email + password login — returns DRF token and basic user info.
+    Used by the Next.js dashboard to replace Supabase auth.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        password = request.data.get('password', '')
+        if not email or not password:
+            return Response({'error': 'email and password are required'}, status=400)
+
+        # Look up user by email (username == email for our users)
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            try:
+                user = User.objects.get(username=email)
+            except User.DoesNotExist:
+                return Response({'error': 'Invalid credentials'}, status=401)
+
+        if not user.check_password(password):
+            return Response({'error': 'Invalid credentials'}, status=401)
+
+        if not user.is_active:
+            return Response({'error': 'Account is inactive'}, status=403)
+
+        token, _ = Token.objects.get_or_create(user=user)
+
+        profile = getattr(user, 'hr_profile', None)
+        # X-User-Id must be a UUID (apps.core.permissions docstring: "Supabase
+        # user UUID"; apps.core.models.ServiceAuditLog.actor_user_id is a
+        # UUIDField) — Django's auth.User.id is an int, so use the AppUser
+        # ("hr_profile") UUID when one exists. Falls back to the int id for
+        # legacy users with no profile yet; that's only safe as long as
+        # nothing on their path needs a real UUID (audit logging does).
+        user_id = str(profile.id) if profile else str(user.id)
+        return Response({
+            'token': token.key,
+            'user_id': user_id,
+            'email': user.email,
+            'username': user.username,
+            'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
+            'role': getattr(profile, 'role', 'super_admin'),
+            'company_id': str(getattr(profile, 'company_id', '') or ''),
+            'employee_id': str(getattr(profile, 'employee_id', '') or ''),
+        })
+
+
+class MeView(views.APIView):
+    """Returns the current authenticated user's info."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        profile = getattr(user, 'hr_profile', None)
+        return Response({
+            'user_id': str(user.id),
+            'email': user.email,
+            'username': user.username,
+            'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
+            'role': getattr(profile, 'role', 'super_admin'),
+            'company_id': str(getattr(profile, 'company_id', '') or ''),
+        })
+
+
+class CompanyViewSet(viewsets.ModelViewSet):
+    """CRUD for companies — replaces Supabase direct queries."""
+    serializer_class = CompanySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'contact_email', 'industry']
+    ordering_fields = ['name', 'created_at']
+    ordering = ['name']
+
+    def get_queryset(self):
+        qs = Company.objects.filter(is_deleted=False, is_active=True)
+        company_id = (
+            self.request.query_params.get('companyId') or
+            self.request.query_params.get('company_id')
+        )
+        if company_id:
+            qs = qs.filter(id=company_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+
+class EmployeeProfileViewSet(viewsets.ModelViewSet):
+    """Full employee-profile CRUD — replaces Supabase direct queries."""
+    serializer_class = EmployeeProfileListSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['employee_number', 'job_title', 'department']
+    ordering_fields = ['created_at', 'employee_number']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        qs = EmployeeProfile.objects.filter(is_deleted=False)
+        company_id = (
+            self.request.query_params.get('companyId') or
+            self.request.query_params.get('company_id')
+        )
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(employment_status=status_filter)
+        dept = self.request.query_params.get('department')
+        if dept:
+            qs = qs.filter(department=dept)
+        emp_type = self.request.query_params.get('employmentType')
+        if emp_type:
+            qs = qs.filter(employment_type=emp_type)
+        return qs
+
+    @action(detail=True, methods=['post'])
+    def terminate(self, request, pk=None):
+        """Ends an employee's employment: flips employment_status, sets
+        end_date, and opens an EmployeeExit record (apps.hr) so the existing
+        clearance/final-dues workflow can pick it up."""
+        from apps.hr.models import EmployeeExit
+
+        employee = self.get_object()
+        reason = request.data.get('reason', 'terminated')
+        kind = {
+            'resigned': 'resignation', 'terminated': 'termination',
+            'contract_end': 'contract_end', 'redundancy': 'redundancy',
+            'misconduct': 'termination',
+        }.get(reason, 'termination')
+        last_working_date = request.data.get('last_working_date')
+
+        employee.employment_status = 'resigned' if reason == 'resigned' else 'terminated'
+        employee.end_date = last_working_date or employee.end_date
+        employee.save(update_fields=['employment_status', 'end_date', 'updated_at'])
+
+        exit_record = EmployeeExit.objects.create(
+            tenant_id=employee.tenant_id, company_id=employee.company_id,
+            employee_id=employee.id, kind=kind,
+            reason=request.data.get('details', ''),
+            last_working_day=last_working_date,
+            initiated_by=request_user_id(request) if request_user_id(request) else None,
+        )
+        ServiceAuditLog.log('employee.terminated', request=request,
+                            object_type='EmployeeProfile', object_id=str(employee.id),
+                            company_id=employee.company_id,
+                            metadata={'exit_id': str(exit_record.id), 'kind': kind})
+
+        return Response(EmployeeProfileListSerializer(employee).data)
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
 
 
 class PayrollRunViewSet(viewsets.ModelViewSet):
@@ -270,19 +439,47 @@ class EmployeePaymentViewSet(viewsets.GenericViewSet):
     serializer_class = EmployeePaymentSerializer
 
     def get_queryset(self):
+        # NOTE: was filtering by tenant_id, but ServiceKeyAuthentication
+        # only ever populates tenant_id/company_id from the same
+        # `company_id` request param — and EmployeeProfile.tenant_id is a
+        # distinct field from company_id (see TenantStamped), so the old
+        # filter silently matched nothing whenever they differ. company_id
+        # is what every other CompanyScopedViewSet in this codebase filters
+        # on; match that convention.
         return EmployeeProfile.objects.filter(
-            tenant_id=self.request.user.tenant_id,
+            company_id=self.request.user.company_id,
             is_deleted=False
         )
 
-    @action(detail=True, methods=['put', 'patch'])
+    @action(detail=True, methods=['get', 'put', 'patch'])
     def payment_method(self, request, pk=None):
-        """Update employee payment method"""
+        """Get or update an employee's payment method. Callers must pass
+        ?company_id= so ServiceKeyAuthentication can scope the queryset
+        (GET requests have no body for it to read company_id from)."""
         employee = self.get_object()
+        if request.method == 'GET':
+            return Response(self.get_serializer(employee).data)
         serializer = self.get_serializer(employee, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class MyPayslipsView(views.APIView):
+    """Employee self-service: own payslips (PWA). Replaces the PWA's old
+    direct Supabase query against payroll_records/payroll_runs."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee_id = request.query_params.get('employee_id')
+        if not employee_id:
+            return Response({'error': 'employee_id is required'}, status=400)
+        limit = int(request.query_params.get('limit', 24))
+        records = (PayrollRecord.objects
+                  .filter(employee_id=employee_id, is_deleted=False)
+                  .select_related('payroll_run')
+                  .order_by('-created_at')[:limit])
+        return Response(MyPayslipSerializer(records, many=True).data)
 
 
 class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):

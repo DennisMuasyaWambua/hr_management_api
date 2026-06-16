@@ -1,12 +1,18 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import (AllowanceTypeViewSet, ComplianceAlertViewSet,
+from .views import (AllowanceTypeViewSet, AnnouncementViewSet,
+                    BackgroundCheckViewSet, ComplianceAlertViewSet,
                     DeductionTypeViewSet, DisciplinaryRecordViewSet,
                     EmployeeAllowanceViewSet, EmployeeCertificateViewSet,
                     EmployeeDeductionViewSet, EmployeeExitViewSet,
-                    LeaveRecallViewSet, MinimumWageViewSet,
-                    OvertimeRequestViewSet, ReimbursementViewSet,
-                    StatutoryRateViewSet)
+                    EmployeeOnboardingDocumentViewSet, KpiAssignmentViewSet,
+                    LeaveBalanceViewSet, LeaveRecallViewSet,
+                    LeaveRequestViewSet, MedicalRecordViewSet,
+                    MinimumWageViewSet, OnboardingSummaryView,
+                    OvertimeRequestViewSet, PerformanceReviewViewSet,
+                    ReimbursementViewSet, StatutoryRateViewSet,
+                    TrainingEnrollmentViewSet, TrainingSessionViewSet)
 
 router = DefaultRouter()
 router.register('allowance-types', AllowanceTypeViewSet, basename='allowance-types')
@@ -22,5 +28,17 @@ router.register('disciplinary', DisciplinaryRecordViewSet, basename='disciplinar
 router.register('exits', EmployeeExitViewSet, basename='exits')
 router.register('leave-recalls', LeaveRecallViewSet, basename='leave-recalls')
 router.register('certificates', EmployeeCertificateViewSet, basename='certificates')
+router.register('leave', LeaveRequestViewSet, basename='leave')
+router.register('leave-balances', LeaveBalanceViewSet, basename='leave-balances')
+router.register('announcements', AnnouncementViewSet, basename='announcements')
+router.register('medical-records', MedicalRecordViewSet, basename='medical-records')
+router.register('background-checks', BackgroundCheckViewSet, basename='background-checks')
+router.register('kpi-assignments', KpiAssignmentViewSet, basename='kpi-assignments')
+router.register('performance-reviews', PerformanceReviewViewSet, basename='performance-reviews')
+router.register('training-sessions', TrainingSessionViewSet, basename='training-sessions')
+router.register('training-enrollments', TrainingEnrollmentViewSet, basename='training-enrollments')
+router.register('onboarding-documents', EmployeeOnboardingDocumentViewSet, basename='onboarding-documents')
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path('onboarding/summary/', OnboardingSummaryView.as_view(), name='onboarding-summary'),
+]
