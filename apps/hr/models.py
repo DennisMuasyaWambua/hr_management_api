@@ -518,7 +518,7 @@ class BackgroundCheck(TenantStamped):
         ordering = ['-requested_at']
         constraints = [
             models.CheckConstraint(
-                check=models.Q(employee_id__isnull=False) | models.Q(candidate_id__isnull=False),
+                condition=models.Q(employee_id__isnull=False) | models.Q(candidate_id__isnull=False),
                 name='background_check_has_subject',
             )
         ]
