@@ -13,7 +13,26 @@ from decimal import Decimal
 import logging
 
 from apps.core.models import ServiceAuditLog
-from apps.core.permissions import request_user_id
+from apps.core.permissions import request_user_id, request_company_id
+
+
+def _get_tenant_id(request):
+    """Resolve tenant_id safely for both ServiceUser and plain auth.User.
+
+    Token-authenticated requests use Django's auth.User which has no tenant_id.
+    Fall back to the company's tenant_id when it's missing from the user object.
+    """
+    user = request.user
+    if hasattr(user, 'tenant_id') and user.tenant_id:
+        return user.tenant_id
+    company_id = request_company_id(request)
+    if company_id:
+        try:
+            company = Company.objects.only('tenant_id').get(id=company_id, is_deleted=False)
+            return company.tenant_id
+        except Company.DoesNotExist:
+            pass
+    return None
 
 from .models import PayrollRun, PayrollRecord, PaymentBatch, EmployeeProfile, Company
 from .serializers import (
@@ -204,10 +223,15 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return PayrollRun.objects.filter(
-            tenant_id=self.request.user.tenant_id,
-            is_deleted=False
-        )
+        qs = PayrollRun.objects.filter(is_deleted=False)
+        company_id = request_company_id(self.request)
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        else:
+            tenant_id = _get_tenant_id(self.request)
+            if tenant_id:
+                qs = qs.filter(tenant_id=tenant_id)
+        return qs
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -218,14 +242,21 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        if hasattr(self.request.user, 'company_id'):
+        company_id = request_company_id(self.request)
+        if company_id:
+            context['company_id'] = company_id
+        elif hasattr(self.request.user, 'company_id'):
             context['company_id'] = self.request.user.company_id
         return context
 
     def perform_create(self, serializer):
+        tenant_id = _get_tenant_id(self.request)
+        company_id = request_company_id(self.request) or (
+            self.request.user.company_id if hasattr(self.request.user, 'company_id') else None
+        )
         serializer.save(
-            tenant_id=self.request.user.tenant_id,
-            company_id=self.request.user.company_id,
+            tenant_id=tenant_id,
+            company_id=company_id,
             run_by=self.request.user.id,
             status='draft'
         )
@@ -246,7 +277,6 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
 
         # Get active employees
         employees = EmployeeProfile.objects.filter(
-            tenant_id=request.user.tenant_id,
             company_id=payroll_run.company_id,
             employment_status='active',
             is_deleted=False
@@ -282,7 +312,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 net_salary = employee.salary - total_deductions
 
                 record = PayrollRecord(
-                    tenant_id=request.user.tenant_id,
+                    tenant_id=payroll_run.tenant_id,
                     payroll_run=payroll_run,
                     employee=employee,
                     gross_salary=employee.salary,
@@ -369,7 +399,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             method_records = records.filter(payment_method=method)
             if method_records.exists():
                 batch = PaymentBatch.objects.create(
-                    tenant_id=request.user.tenant_id,
+                    tenant_id=payroll_run.tenant_id,
                     payroll_run=payroll_run,
                     payment_method=method,
                     total_amount=sum(r.net_salary for r in method_records),
@@ -446,10 +476,11 @@ class EmployeePaymentViewSet(viewsets.GenericViewSet):
         # filter silently matched nothing whenever they differ. company_id
         # is what every other CompanyScopedViewSet in this codebase filters
         # on; match that convention.
-        return EmployeeProfile.objects.filter(
-            company_id=self.request.user.company_id,
-            is_deleted=False
-        )
+        company_id = request_company_id(self.request)
+        qs = EmployeeProfile.objects.filter(is_deleted=False)
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        return qs
 
     @action(detail=True, methods=['get', 'put', 'patch'])
     def payment_method(self, request, pk=None):
@@ -490,11 +521,11 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return EmployeeProfile.objects.filter(
-            tenant_id=self.request.user.tenant_id,
-            is_deleted=False,
-            employment_status='active'
-        )
+        qs = EmployeeProfile.objects.filter(is_deleted=False, employment_status='active')
+        company_id = request_company_id(self.request)
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        return qs
 
     @action(detail=False, methods=['get'])
     def with_payment_status(self, request):
@@ -521,7 +552,6 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
 
         # Get current period payroll run
         payroll_run = PayrollRun.objects.filter(
-            tenant_id=request.user.tenant_id,
             period_month=current_month,
             period_year=current_year,
             is_deleted=False
@@ -640,7 +670,6 @@ class PaymentHistoryViewSet(viewsets.GenericViewSet):
 
         # Get payroll records from completed runs
         records = PayrollRecord.objects.filter(
-            tenant_id=request.user.tenant_id,
             is_deleted=False,
             payment_status__in=['paid', 'failed'],
             payroll_run__status__in=['completed', 'processing']
