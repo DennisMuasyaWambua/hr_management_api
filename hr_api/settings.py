@@ -62,40 +62,16 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'hr_api.wsgi.application'
 
-# Database — DATABASE_URL (Railway auto-injects this) takes priority;
-# falls back to individual DB_* vars for local dev, then SQLite.
+# Database — always PostgreSQL via DATABASE_URL.
+# Override by setting DATABASE_URL in the environment.
 import dj_database_url as _dj_db_url
 
-_DATABASE_URL = config('DATABASE_URL', default='')
-_DB_ENGINE    = config('DB_ENGINE', default='sqlite')
+_DATABASE_URL = config(
+    'DATABASE_URL',
+    default='postgresql://postgres:nsxUftcRRqCKhFutpdCNXnFhYWROCHXV@thomas.proxy.rlwy.net:14645/railway',
+)
 
-if _DATABASE_URL:
-    DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
-elif _DB_ENGINE == 'postgresql':
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': config('DB_NAME', default='hr_api'),
-            'USER': config('DB_USER', default='postgres'),
-            'PASSWORD': config('DB_PASSWORD', default=''),
-            'HOST': config('DB_HOST', default='localhost'),
-            'PORT': config('DB_PORT', default='5432'),
-        }
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-
-    from django.db.backends.signals import connection_created
-    def disable_foreign_keys(sender, connection, **kwargs):
-        if connection.vendor == 'sqlite':
-            cursor = connection.cursor()
-            cursor.execute('PRAGMA foreign_keys=OFF;')
-    connection_created.connect(disable_foreign_keys)
+DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
