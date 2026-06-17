@@ -4,42 +4,33 @@ from django.contrib.auth.hashers import make_password
 
 def seed_admin(apps, schema_editor):
     User = apps.get_model('auth', 'User')
-    AppUser = apps.get_model('core', 'AppUser')
 
-    user, created = User.objects.get_or_create(
-        email='wamuasya23@gmail.com',
-        defaults={
-            'username': 'wamuasya23',
-            'first_name': 'Dennis',
-            'last_name': 'Wambua',
-            'password': make_password('dennis123'),
-            'is_staff': True,
-            'is_superuser': True,
-            'is_active': True,
-        },
-    )
-    if not created:
-        # Already exists — just ensure password and flags are correct
-        user.set_password('dennis123')
-        user.is_staff = True
-        user.is_superuser = True
-        user.is_active = True
-        user.save()
+    hashed = make_password('dennis123')
 
-    AppUser.objects.get_or_create(
-        email='wamuasya23@gmail.com',
-        defaults={
-            'auth_user': user,
-            'full_name': 'Dennis Wambua',
-            'role': 'super_admin',
-            'is_active': True,
-            'preferred_language': 'en',
-        },
-    )
+    # Update if exists, create if not — pure SQL-level operations only,
+    # no model instance methods, so this works safely in migration context.
+    if User.objects.filter(email='wamuasya23@gmail.com').exists():
+        User.objects.filter(email='wamuasya23@gmail.com').update(
+            password=hashed,
+            is_staff=True,
+            is_superuser=True,
+            is_active=True,
+        )
+    else:
+        User.objects.create(
+            username='wamuasya23',
+            email='wamuasya23@gmail.com',
+            first_name='Dennis',
+            last_name='Wambua',
+            password=hashed,
+            is_staff=True,
+            is_superuser=True,
+            is_active=True,
+        )
 
 
 def reverse_seed(apps, schema_editor):
-    pass  # non-destructive reverse — leave the user in place
+    pass
 
 
 class Migration(migrations.Migration):
