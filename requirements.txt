@@ -5,6 +5,7 @@ celery>=5.3
 redis>=4.0
 requests>=2.28
 python-decouple>=3.8
+dj-database-url>=2.1
 psycopg2-binary>=2.9
 gunicorn
 intasend-python

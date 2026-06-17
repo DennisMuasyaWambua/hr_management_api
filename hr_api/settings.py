@@ -62,10 +62,16 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'hr_api.wsgi.application'
 
-# Database - Use SQLite for development, PostgreSQL for production
-DB_ENGINE = config('DB_ENGINE', default='sqlite')
+# Database — DATABASE_URL (Railway auto-injects this) takes priority;
+# falls back to individual DB_* vars for local dev, then SQLite.
+import dj_database_url as _dj_db_url
 
-if DB_ENGINE == 'postgresql':
+_DATABASE_URL = config('DATABASE_URL', default='')
+_DB_ENGINE    = config('DB_ENGINE', default='sqlite')
+
+if _DATABASE_URL:
+    DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
+elif _DB_ENGINE == 'postgresql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -84,7 +90,6 @@ else:
         }
     }
 
-    # Disable FK constraints for SQLite (data lives in Supabase, SQLite is local cache)
     from django.db.backends.signals import connection_created
     def disable_foreign_keys(sender, connection, **kwargs):
         if connection.vendor == 'sqlite':
