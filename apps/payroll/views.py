@@ -53,13 +53,10 @@ class AuthLoginView(views.APIView):
             try:
                 user = User.objects.get(username=email)
             except User.DoesNotExist:
-                logger.warning('[login] user not found: %s | db: %s', email, settings.DATABASES['default'].get('HOST', settings.DATABASES['default'].get('NAME')))
-                return Response({'error': 'user_not_found'}, status=401)
+                return Response({'error': 'Invalid credentials'}, status=401)
 
-        pw_ok = user.check_password(password)
-        logger.warning('[login] user=%s pw_ok=%s active=%s', email, pw_ok, user.is_active)
-        if not pw_ok:
-            return Response({'error': 'wrong_password'}, status=401)
+        if not user.check_password(password):
+            return Response({'error': 'Invalid credentials'}, status=401)
 
         if not user.is_active:
             return Response({'error': 'Account is inactive'}, status=403)
