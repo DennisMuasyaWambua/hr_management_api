@@ -26,6 +26,13 @@ class Role(models.Model):
     SYSTEM_ROLES = [
         ('super_admin', 'Super Admin'),
         ('company_admin', 'Company Admin'),
+        ('internal_hr', 'Internal HR'),
+        ('deployed_hr', 'Deployed HR'),
+        ('internal_manager', 'Internal Manager'),
+        ('deployed_manager', 'Deployed Manager'),
+        ('white_collar_employee', 'White Collar Employee'),
+        ('blue_collar_employee', 'Blue Collar Employee'),
+        # Legacy (back-compat)
         ('hr', 'HR'),
         ('manager', 'Manager'),
         ('employee', 'Employee'),
@@ -104,6 +111,29 @@ class UserRoleAssignment(models.Model):
     class Meta:
         db_table = 'rbac_user_roles'
         unique_together = [('user_id', 'company_id', 'role')]
+
+
+class StaffAssignment(models.Model):
+    """
+    Which employees a *deployed* HR / Manager is responsible for.
+
+    Deployed HR and Managers are placed inside a client company and may only
+    see the specific employees assigned to them (not the whole company). This
+    table is the source of truth for that scoping; enforced in the employee /
+    payroll / leave querysets. Internal roles and company_admin are scoped to
+    the whole company instead and do not need rows here.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
+    company_id = models.UUIDField(db_index=True)
+    staff_user_id = models.UUIDField(db_index=True)   # the deployed HR/Manager (Supabase user id)
+    employee_id = models.UUIDField(db_index=True)     # employee_profiles.id they manage
+    assigned_by = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'rbac_staff_assignments'
+        unique_together = [('staff_user_id', 'employee_id')]
 
 
 class ServiceAuditLog(models.Model):

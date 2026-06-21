@@ -181,6 +181,10 @@ AT_SENDER_ID = config('AT_SENDER_ID', default='')
 # Demo mode - simulates payments for demonstrations
 PAYMENT_DEMO_MODE = config('PAYMENT_DEMO_MODE', default=False, cast=bool)
 
+# Disbursement is blocked until the payroll run has been e-signed by the
+# employer via DocuSeal. Keep True in production (sign-then-disburse policy).
+PAYROLL_REQUIRE_SIGNATURE = config('PAYROLL_REQUIRE_SIGNATURE', default=True, cast=bool)
+
 # ---------------------------------------------------------------------------
 # TimescaleDB — spatio-temporal attendance logging from the PWA.
 # When TIMESCALE_ENABLED, apps.attendance models live in this database (see

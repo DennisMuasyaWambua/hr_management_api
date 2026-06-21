@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (AppUserViewSet, AuditLogViewSet,
                     NotificationTemplateViewSet, NotificationViewSet,
                     OneTapApprovalView, PermissionViewSet, RoleViewSet,
-                    UserRoleAssignmentViewSet)
+                    StaffAssignmentViewSet, UserRoleAssignmentViewSet)
 from .views_auth import SendOTPView, VerifyOTPView
 
 router = DefaultRouter()
@@ -12,6 +12,7 @@ router.register('users', AppUserViewSet, basename='users')
 router.register('rbac/roles', RoleViewSet, basename='rbac-roles')
 router.register('rbac/permissions', PermissionViewSet, basename='rbac-permissions')
 router.register('rbac/assignments', UserRoleAssignmentViewSet, basename='rbac-assignments')
+router.register('rbac/staff-assignments', StaffAssignmentViewSet, basename='rbac-staff-assignments')
 router.register('notifications/templates', NotificationTemplateViewSet,
                 basename='notification-templates')
 router.register('notifications', NotificationViewSet, basename='notifications')

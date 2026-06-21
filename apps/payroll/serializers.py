@@ -51,7 +51,7 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
         model = EmployeeProfile
         fields = [
             'id', 'employee_number', 'job_title', 'department',
-            'employment_type', 'employment_status', 'salary',
+            'employment_type', 'employment_status', 'worker_class', 'salary',
             'payment_method', 'bank_name', 'bank_account',
             'mpesa_number', 'airtel_number'
         ]
@@ -66,7 +66,7 @@ class EmployeeProfileListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user_id', 'employee_number', 'company_id',
             'department', 'job_title', 'employment_type', 'employment_status',
-            'manager_id', 'start_date', 'end_date', 'salary', 'payment_method',
+            'worker_class', 'manager_id', 'start_date', 'end_date', 'salary', 'payment_method',
             'bank_name', 'bank_account', 'mpesa_number', 'airtel_number',
             'nssf_number', 'nhif_number', 'kra_pin',
             'id_number', 'date_of_birth', 'gender', 'nationality',

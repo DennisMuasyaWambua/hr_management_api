@@ -41,8 +41,21 @@ def _demo():
     return getattr(settings, 'DOCUSEAL_DEMO_MODE', True)
 
 
-def create_template_from_pdf(name: str, pdf_bytes: bytes) -> dict:
-    """Create a DocuSeal template from a PDF (signature field auto-detected/appended)."""
+def create_template_from_pdf(name: str, pdf_bytes: bytes, *, fields=None,
+                             role='Approver') -> dict:
+    """
+    Create a DocuSeal template from a PDF.
+
+    `fields` lets callers append fields beyond the default signature, e.g. the
+    background-check flow adds a "clean?" decision + a comments box:
+        fields=[{'name': 'Signature', 'type': 'signature'},
+                {'name': 'Subject is clean', 'type': 'checkbox'},
+                {'name': 'Comments', 'type': 'text'}]
+    The signer role is applied to every field.
+    """
+    if fields is None:
+        fields = [{'name': 'Signature', 'type': 'signature'}]
+    fields = [{**f, 'role': f.get('role', role)} for f in fields]
     if _demo():
         return {'id': f'demo-tpl-{uuid.uuid4().hex[:8]}', 'name': name, 'demo': True}
     resp = requests.post(
@@ -53,8 +66,7 @@ def create_template_from_pdf(name: str, pdf_bytes: bytes) -> dict:
             'documents': [{
                 'name': name,
                 'file': base64.b64encode(pdf_bytes).decode(),
-                # Place a signature field on the last page for each signer role.
-                'fields': [{'name': 'Signature', 'type': 'signature', 'role': 'Approver'}],
+                'fields': fields,
             }],
         },
         timeout=60,

@@ -71,6 +71,13 @@ class EmployeeProfile(models.Model):
         ('resigned', 'Resigned'),
     ]
 
+    # White vs blue collar. Blue-collar workers must clock in/out (attendance);
+    # white-collar workers do not. Drives the PWA check-in visibility.
+    WORKER_CLASS_CHOICES = [
+        ('white_collar', 'White Collar'),
+        ('blue_collar', 'Blue Collar'),
+    ]
+
     PAYMENT_METHOD_CHOICES = [
         ('bank', 'Bank Transfer'),
         ('mpesa', 'M-Pesa'),
@@ -94,6 +101,9 @@ class EmployeeProfile(models.Model):
     employment_type = models.CharField(max_length=20, choices=EMPLOYMENT_TYPE_CHOICES)
     employment_status = models.CharField(
         max_length=20, choices=EMPLOYMENT_STATUS_CHOICES, default='active'
+    )
+    worker_class = models.CharField(
+        max_length=20, choices=WORKER_CLASS_CHOICES, default='white_collar'
     )
     manager_id = models.UUIDField(null=True, blank=True)  # FK to users
 

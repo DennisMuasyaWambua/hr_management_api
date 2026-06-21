@@ -210,7 +210,14 @@ class DocuSealWebhook(APIView):
         if event not in ('form.completed', 'submission.completed'):
             return Response({'ok': True, 'ignored': event})
 
-        run_id = (data.get('metadata') or {}).get('payroll_run_id')
+        metadata = data.get('metadata') or {}
+
+        # Background-check validation submissions route back to apps.hr.
+        bg_id = metadata.get('background_check_id')
+        if bg_id:
+            return self._handle_background_check(bg_id, data, request)
+
+        run_id = metadata.get('payroll_run_id')
         email = data.get('email', '')
         if not run_id:
             sub_id = str(data.get('submission_id', data.get('id', '')))
@@ -229,6 +236,51 @@ class DocuSealWebhook(APIView):
         result = approval_service.record_approval(
             run_id, approver.user_id, via='docuseal',
             docuseal_slug=str(data.get('slug', '')), request=request)
+        return Response({'ok': True, 'result': result})
+
+    @staticmethod
+    def _extract_values(data) -> dict:
+        """Flatten DocuSeal completed `values` into {field_name: value}."""
+        values = data.get('values') or data.get('fields') or []
+        out = {}
+        if isinstance(values, dict):
+            return values
+        for item in values:
+            if isinstance(item, dict):
+                name = item.get('field') or item.get('name')
+                if name is not None:
+                    out[name] = item.get('value')
+        return out
+
+    def _handle_background_check(self, bg_id, data, request):
+        from apps.hr.background_check_service import record_validation_result
+        from apps.hr.models import BackgroundCheck
+        from apps.core.services import docuseal
+
+        check = BackgroundCheck.objects.filter(id=bg_id, is_deleted=False).first()
+        if check is None:
+            return Response({'error': f'no background check {bg_id}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        values = self._extract_values(data)
+        clean_val = values.get('Subject is clean')
+        is_clean = str(clean_val).strip().lower() in ('true', '1', 'yes', 'on', 'checked')
+        comments = str(values.get('Comments') or '')
+
+        signed_url = ''
+        try:
+            sub_id = check.docuseal_submission_id or str(data.get('submission_id', data.get('id', '')))
+            signed = docuseal.get_signed_document(sub_id) if sub_id else None
+            if signed:
+                # store URL-less marker; the bytes can be persisted by a future
+                # documents pipeline. We at least record that a signed copy exists.
+                signed_url = f'docuseal:submission/{sub_id}'
+        except Exception:  # noqa: BLE001
+            signed_url = ''
+
+        result = record_validation_result(
+            check, is_clean=is_clean, comments=comments,
+            signed_url=signed_url, request=request)
         return Response({'ok': True, 'result': result})
 
 

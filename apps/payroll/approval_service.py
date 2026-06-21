@@ -145,6 +145,7 @@ def record_approval(payroll_run_id, approver_user_id, *, via='dashboard',
     if approvals >= config.required_approvals:
         run.status = 'approved'
         run.save(update_fields=['status', 'updated_at'])
+        _finalize_signed_documents(run)
         company = Company.objects.filter(id=run.company_id).first()
         if company and company.contact_email:
             notif.notify('payroll.approved', [{'email': company.contact_email}],
@@ -159,6 +160,49 @@ def record_approval(payroll_run_id, approver_user_id, *, via='dashboard',
                                       'required': config.required_approvals})
     return {'status': 'approved', 'approvals': approvals,
             'required': config.required_approvals, 'run_status': run.status}
+
+
+def _finalize_signed_documents(run: PayrollRun):
+    """
+    Quorum reached → the run is e-signed. Mark every document as signed (this is
+    the signal the disbursement gate checks) and best-effort fetch + store the
+    signed/audit-trailed PDF from DocuSeal. Survives DocuSeal/demo outages.
+    """
+    import hashlib
+
+    from django.core.files.base import ContentFile
+
+    from apps.core.services import docuseal
+
+    docs = list(PayrollDocument.objects.filter(payroll_run_id=run.id))
+    PayrollDocument.objects.filter(payroll_run_id=run.id).update(
+        is_signed=True, updated_at=timezone.now())
+
+    submission_id = next((d.docuseal_submission_id for d in docs
+                          if d.docuseal_submission_id), '')
+    if not submission_id:
+        return
+    try:
+        signed_bytes = docuseal.get_signed_document(submission_id)
+    except Exception:  # noqa: BLE001 — never block approval on a download error
+        logger.exception('Could not fetch signed document for run %s', run.id)
+        return
+    if not signed_bytes:
+        return  # demo mode / not yet available
+    if PayrollDocument.objects.filter(payroll_run_id=run.id,
+                                      doc_type='signed_pdf').exists():
+        return
+    template_doc = docs[0] if docs else None
+    PayrollDocument.objects.create(
+        tenant_id=run.tenant_id, company_id=run.company_id,
+        payroll_run_id=run.id, doc_type='signed_pdf',
+        file=ContentFile(signed_bytes, name=f'payroll_{run.id}_signed.pdf'),
+        sha256=hashlib.sha256(signed_bytes).hexdigest(),
+        docuseal_submission_id=submission_id,
+        docuseal_template_id=getattr(template_doc, 'docuseal_template_id', ''),
+        is_signed=True,
+        generated_by=getattr(template_doc, 'generated_by', None),
+    )
 
 
 def lock_documents(run: PayrollRun):

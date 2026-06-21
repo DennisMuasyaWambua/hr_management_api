@@ -513,6 +513,16 @@ class BackgroundCheck(TenantStamped):
     flags = models.JSONField(default=list, blank=True)
     notes = models.TextField(null=True, blank=True)
 
+    # Signed validation round-trip (DocuSeal): Sheer Logic emails a branded
+    # request to a validation body, who signs + records a verdict + comments.
+    VERDICTS = [('clean', 'Clean'), ('not_clean', 'Not Clean')]
+    validation_body_name = models.CharField(max_length=255, null=True, blank=True)
+    validation_body_email = models.EmailField(null=True, blank=True)
+    docuseal_submission_id = models.CharField(max_length=100, blank=True, default='')
+    signed_document_url = models.TextField(null=True, blank=True)
+    verdict = models.CharField(max_length=20, choices=VERDICTS, null=True, blank=True)
+    reviewer_comments = models.TextField(null=True, blank=True)
+
     class Meta:
         db_table = 'background_checks'
         ordering = ['-requested_at']

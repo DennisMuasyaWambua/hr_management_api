@@ -515,6 +515,26 @@ class BackgroundCheckViewSet(CompanyScopedViewSet):
             qs = qs.filter(expiry_date__isnull=False, expiry_date__lte=cutoff)
         return qs.order_by('-requested_at')
 
+    @action(detail=True, methods=['post'], url_path='request-validation')
+    def request_validation(self, request, pk=None):
+        """
+        Send a Sheer Logic-branded, signable request to a validation body.
+        Body: {"validation_body_name": ..., "validation_body_email": ...}
+        The body signs + records whether the subject is clean (+ comments);
+        the DocuSeal webhook routes the result back to this check.
+        """
+        from .background_check_service import send_for_validation, ValidationError
+        check = self.get_object()
+        try:
+            result = send_for_validation(
+                check,
+                validation_body_name=request.data.get('validation_body_name'),
+                validation_body_email=request.data.get('validation_body_email'),
+                request=request)
+        except ValidationError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
     def perform_create(self, serializer):
         kwargs = {}
         company_id = request_company_id(self.request)

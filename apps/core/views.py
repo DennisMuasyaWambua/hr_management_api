@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from .models import (AppUser, NotificationLog, NotificationTemplate,
                      OneTapToken, Permission, Role, RolePermission,
-                     ServiceAuditLog, UserRoleAssignment)
+                     ServiceAuditLog, StaffAssignment, UserRoleAssignment)
 from .permissions import (HasModulePermission, IsHighestRank,
                           request_company_id, request_user_id)
 from .serializers import (AppUserSerializer, NotificationLogSerializer,
@@ -19,6 +19,7 @@ from .serializers import (AppUserSerializer, NotificationLogSerializer,
                           RolePermissionSerializer, RoleSerializer,
                           SendNotificationSerializer,
                           ServiceAuditLogSerializer,
+                          StaffAssignmentSerializer,
                           UserRoleAssignmentSerializer)
 from .services import notifications as notif
 
@@ -130,6 +131,41 @@ class UserRoleAssignmentViewSet(viewsets.ModelViewSet):
                             object_type='user', object_id=str(instance.user_id),
                             company_id=instance.company_id,
                             metadata={'role': instance.role.slug})
+        instance.delete()
+
+
+class StaffAssignmentViewSet(viewsets.ModelViewSet):
+    """
+    Assign employees to a deployed HR / Manager (who then only sees those
+    employees). Managed by the highest-ranked role in scope (super_admin /
+    company_admin). Filter with ?staff_user_id= or ?company_id=.
+    """
+    serializer_class = StaffAssignmentSerializer
+    permission_classes = [IsHighestRank]
+    rbac_module = 'rbac'
+
+    def get_queryset(self):
+        qs = StaffAssignment.objects.all()
+        company_id = request_company_id(self.request)
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        staff_user_id = self.request.query_params.get('staff_user_id')
+        if staff_user_id:
+            qs = qs.filter(staff_user_id=staff_user_id)
+        return qs
+
+    def perform_create(self, serializer):
+        instance = serializer.save(assigned_by=request_user_id(self.request))
+        ServiceAuditLog.log('rbac.staff_assigned', request=self.request,
+                            object_type='employee', object_id=str(instance.employee_id),
+                            company_id=instance.company_id,
+                            metadata={'staff_user_id': str(instance.staff_user_id)})
+
+    def perform_destroy(self, instance):
+        ServiceAuditLog.log('rbac.staff_unassigned', request=self.request,
+                            object_type='employee', object_id=str(instance.employee_id),
+                            company_id=instance.company_id,
+                            metadata={'staff_user_id': str(instance.staff_user_id)})
         instance.delete()
 
 

@@ -11,32 +11,59 @@ from apps.core.models import Permission, Role, RolePermission
 MODULES = ['payroll', 'allowances', 'overtime', 'reimbursements',
            'statutory_rates', 'disciplinary', 'exits', 'leave', 'certificates',
            'attendance', 'geofence', 'notifications', 'rbac', 'audit', 'share',
-           'compliance']
+           'compliance', 'background_checks']
 
+# Strict role chain (lower rank = more authority):
+#   super_admin > company_admin > internal_hr > deployed_hr
+#   > internal_manager > deployed_manager > white_collar_employee > blue_collar_employee
+# Legacy slugs (hr/manager/employee) are kept so existing assignments/sessions
+# keep resolving while data is migrated to the granular roles.
 SYSTEM_ROLES = [
     ('super_admin', 'Super Admin', 0),
     ('company_admin', 'Company Admin', 10),
-    ('hr', 'HR', 20),
-    ('manager', 'Manager', 30),
-    ('employee', 'Employee', 40),
+    ('internal_hr', 'Internal HR', 20),
+    ('deployed_hr', 'Deployed HR', 25),
+    ('internal_manager', 'Internal Manager', 30),
+    ('deployed_manager', 'Deployed Manager', 35),
+    ('white_collar_employee', 'White Collar Employee', 40),
+    ('blue_collar_employee', 'Blue Collar Employee', 45),
+    # Legacy (back-compat)
+    ('hr', 'HR (legacy)', 20),
+    ('manager', 'Manager (legacy)', 30),
+    ('employee', 'Employee (legacy)', 40),
 ]
 
 # Default grants per role slug. Payroll is HR-and-above ONLY (hard rule).
+# Internal vs deployed share the same capability set — deployed scoping (only
+# assigned employees) is enforced at the queryset level, not via permissions.
+_HR_GRANTS = ['payroll.view', 'payroll.manage', 'allowances.view', 'allowances.manage',
+              'overtime.view', 'overtime.manage', 'reimbursements.view',
+              'reimbursements.manage', 'disciplinary.view', 'disciplinary.manage',
+              'exits.view', 'exits.manage', 'leave.view', 'leave.manage',
+              'certificates.view', 'certificates.manage', 'attendance.view',
+              'geofence.view', 'notifications.view', 'notifications.manage',
+              'audit.view', 'share.manage', 'share.view', 'compliance.view',
+              'statutory_rates.view', 'background_checks.view',
+              'background_checks.manage']
+_MANAGER_GRANTS = ['leave.view', 'leave.manage', 'overtime.view', 'overtime.manage',
+                   'attendance.view']
+_EMPLOYEE_GRANTS = ['leave.view', 'overtime.view', 'reimbursements.view',
+                    'attendance.view']
+
 DEFAULT_GRANTS = {
     'super_admin': ['*'],
     'company_admin': ['*'],  # within their company; cross-company blocked by scoping
-    'hr': ['payroll.view', 'payroll.manage', 'allowances.view', 'allowances.manage',
-           'overtime.view', 'overtime.manage', 'reimbursements.view',
-           'reimbursements.manage', 'disciplinary.view', 'disciplinary.manage',
-           'exits.view', 'exits.manage', 'leave.view', 'leave.manage',
-           'certificates.view', 'certificates.manage', 'attendance.view',
-           'geofence.view', 'notifications.view', 'notifications.manage',
-           'audit.view', 'share.manage', 'share.view', 'compliance.view',
-           'statutory_rates.view'],
-    'manager': ['leave.view', 'leave.manage', 'overtime.view', 'overtime.manage',
-                'attendance.view'],
-    'employee': ['leave.view', 'overtime.view', 'reimbursements.view',
-                 'attendance.view'],
+    'internal_hr': _HR_GRANTS,
+    'deployed_hr': _HR_GRANTS,
+    'internal_manager': _MANAGER_GRANTS,
+    'deployed_manager': _MANAGER_GRANTS,
+    'white_collar_employee': _EMPLOYEE_GRANTS,
+    # Blue-collar additionally clock in/out (attendance.manage).
+    'blue_collar_employee': _EMPLOYEE_GRANTS + ['attendance.manage'],
+    # Legacy
+    'hr': _HR_GRANTS,
+    'manager': _MANAGER_GRANTS,
+    'employee': _EMPLOYEE_GRANTS,
 }
 
 

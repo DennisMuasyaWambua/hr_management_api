@@ -16,7 +16,26 @@ from rest_framework.permissions import BasePermission
 from apps.core.models import (Permission, Role, RolePermission, ServiceAuditLog,
                               UserRoleAssignment)
 
-ROLE_RANKS = {'super_admin': 0, 'company_admin': 10, 'hr': 20, 'manager': 30, 'employee': 40}
+ROLE_RANKS = {
+    'super_admin': 0,
+    'company_admin': 10,
+    'internal_hr': 20,
+    'deployed_hr': 25,
+    'internal_manager': 30,
+    'deployed_manager': 35,
+    'white_collar_employee': 40,
+    'blue_collar_employee': 45,
+    # Legacy slugs (back-compat)
+    'hr': 20,
+    'manager': 30,
+    'employee': 40,
+}
+
+# Roles allowed to see/manage payroll (HR tier and above), regardless of grants.
+PAYROLL_ROLES = {'super_admin', 'company_admin', 'internal_hr', 'deployed_hr', 'hr'}
+
+# Deployed roles are scoped to only the employees explicitly assigned to them.
+DEPLOYED_ROLES = {'deployed_hr', 'deployed_manager'}
 
 
 def request_role(request) -> str | None:
@@ -43,6 +62,50 @@ def effective_permissions(role_slug: str, company_id=None) -> set[str]:
 def models_q_company(company_id):
     from django.db.models import Q
     return Q(company_id=company_id) | Q(company_id__isnull=True)
+
+
+def assigned_employee_ids(staff_user_id):
+    """employee_profiles.id values a deployed HR/Manager is assigned to."""
+    from apps.core.models import StaffAssignment
+    return list(
+        StaffAssignment.objects.filter(staff_user_id=staff_user_id)
+        .values_list('employee_id', flat=True)
+    )
+
+
+def scope_employee_queryset(qs, request, *, id_field='id'):
+    """
+    Apply role-based scoping to an EmployeeProfile queryset (or a queryset of
+    rows keyed by an employee id via `id_field`):
+      - super_admin: unrestricted
+      - company_admin / internal_*: restricted to their company
+      - deployed_*: restricted to explicitly assigned employees
+      - others / unknown: unrestricted only under legacy (non-strict) mode
+    """
+    role = request_role(request)
+    company_id = request_company_id(request)
+
+    if role == 'super_admin' or role is None:
+        return qs  # super admin, or legacy caller without headers
+
+    if role in DEPLOYED_ROLES:
+        emp_ids = assigned_employee_ids(request_user_id(request))
+        return qs.filter(**{f'{id_field}__in': emp_ids})
+
+    # company_admin + internal HR/managers: whole company
+    if company_id:
+        if id_field == 'id':
+            return qs.filter(company_id=company_id)
+        return qs.filter(**{f'{id_field}__in': _company_employee_ids(company_id)})
+    return qs
+
+
+def _company_employee_ids(company_id):
+    from apps.payroll.models import EmployeeProfile
+    return list(
+        EmployeeProfile.objects.filter(company_id=company_id, is_deleted=False)
+        .values_list('id', flat=True)
+    )
 
 
 def _strict():
@@ -96,7 +159,7 @@ class PayrollHROnly(BasePermission):
         role = request_role(request)
         if role is None:
             return False if _strict() else _legacy_allow(request, view, 'payroll.view')
-        return role in ('super_admin', 'company_admin', 'hr')
+        return role in PAYROLL_ROLES
 
 
 class IsHighestRank(BasePermission):

@@ -171,6 +171,10 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
         emp_type = self.request.query_params.get('employmentType')
         if emp_type:
             qs = qs.filter(employment_type=emp_type)
+        # Deployed HR/Managers only see their assigned employees; internal roles
+        # and company_admin are scoped to their company. (super_admin: all)
+        from apps.core.permissions import scope_employee_queryset
+        qs = scope_employee_queryset(qs, self.request)
         return qs
 
     @action(detail=True, methods=['post'])
@@ -373,6 +377,25 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Sign-then-disburse policy: even an 'approved' run cannot be paid out
+        # until the employer has e-signed it via DocuSeal. This closes the hole
+        # where the plain `approve` action sets status without any signature.
+        if getattr(settings, 'PAYROLL_REQUIRE_SIGNATURE', True):
+            from .approval_models import PayrollApproval, PayrollDocument
+            signed = (
+                PayrollApproval.objects.filter(
+                    payroll_run_id=payroll_run.id, decision='approved',
+                    via='docuseal').exists()
+                or PayrollDocument.objects.filter(
+                    payroll_run_id=payroll_run.id, is_signed=True).exists()
+            )
+            if not signed:
+                return Response(
+                    {'error': 'Payroll must be signed by the employer via DocuSeal '
+                              'before disbursement. Send it for signing first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         serializer = DisbursePayrollSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -525,6 +548,9 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
         company_id = request_company_id(self.request)
         if company_id:
             qs = qs.filter(company_id=company_id)
+        # Deployed HR/Managers only see their assigned employees.
+        from apps.core.permissions import scope_employee_queryset
+        qs = scope_employee_queryset(qs, self.request)
         return qs
 
     @action(detail=False, methods=['get'])
