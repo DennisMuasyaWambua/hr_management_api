@@ -28,6 +28,12 @@ class DocuSealError(Exception):
     pass
 
 
+# Keep well under gunicorn's worker timeout (30s) so an unreachable/slow
+# DocuSeal instance fails fast and is caught, instead of hanging the worker
+# until it's killed (which surfaces as an opaque 500).
+_TIMEOUT = int(getattr(settings, 'DOCUSEAL_HTTP_TIMEOUT', 10))
+
+
 def _base_url():
     return getattr(settings, 'DOCUSEAL_BASE_URL', 'https://api.docuseal.com').rstrip('/')
 
@@ -69,7 +75,7 @@ def create_template_from_pdf(name: str, pdf_bytes: bytes, *, fields=None,
                 'fields': fields,
             }],
         },
-        timeout=60,
+        timeout=_TIMEOUT,
     )
     if not resp.ok:
         raise DocuSealError(f'Template create failed: {resp.status_code} {resp.text[:300]}')
@@ -104,7 +110,7 @@ def create_submission(template_id, approvers: list[dict], *, send_email=True,
                 for a in approvers
             ],
         },
-        timeout=60,
+        timeout=_TIMEOUT,
     )
     if not resp.ok:
         raise DocuSealError(f'Submission create failed: {resp.status_code} {resp.text[:300]}')
@@ -116,10 +122,10 @@ def get_signed_document(submission_id) -> bytes | None:
     if _demo():
         return None
     resp = requests.get(f'{_base_url()}/submissions/{submission_id}/documents',
-                        headers=_headers(), timeout=60)
+                        headers=_headers(), timeout=_TIMEOUT)
     if not resp.ok:
         raise DocuSealError(f'Document fetch failed: {resp.status_code}')
     docs = resp.json()
     if docs and docs[0].get('url'):
-        return requests.get(docs[0]['url'], timeout=60).content
+        return requests.get(docs[0]['url'], timeout=_TIMEOUT).content
     return None
