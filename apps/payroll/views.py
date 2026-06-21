@@ -437,8 +437,15 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                     # Process synchronously for demo (no Celery needed)
                     process_payment_batch(str(batch.id))
                 else:
-                    # Queue async processing
-                    process_payment_batch.delay(str(batch.id))
+                    # Queue async processing — but never let a missing/broken
+                    # Celery broker block a real disbursement: fall back to
+                    # running the batch synchronously in-request.
+                    try:
+                        process_payment_batch.delay(str(batch.id))
+                    except Exception:
+                        logger.warning('Celery unavailable; processing payment '
+                                       'batch %s synchronously', batch.id, exc_info=True)
+                        process_payment_batch(str(batch.id))
 
         # Update payroll run status
         payroll_run.status = 'processing'

@@ -152,6 +152,17 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# No Celery worker/Redis is deployed, so .delay() against the default
+# localhost broker raises ("reconnect to result store backend") and 500s the
+# request (payroll signing notifications, disbursement, IPNs). Running tasks
+# eagerly executes them inline in the web process — no broker/result backend
+# needed. EAGER_PROPAGATES=False keeps a task error from bubbling into (and
+# re-triggering) the caller. Set CELERY_TASK_ALWAYS_EAGER=False once a real
+# worker + broker are provisioned.
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=True, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = config('CELERY_TASK_EAGER_PROPAGATES', default=False, cast=bool)
+CELERY_TASK_STORE_EAGER_RESULT = False
+
 # PesaPal Configuration
 PESAPAL_CONSUMER_KEY = config('PESAPAL_CONSUMER_KEY', default='')
 PESAPAL_CONSUMER_SECRET = config('PESAPAL_CONSUMER_SECRET', default='')

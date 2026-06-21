@@ -224,7 +224,18 @@ def notify(event, recipients, context=None, *, channels=('email',), company_id=N
             log_ids.append(str(log.id))
             if async_send:
                 from apps.core.tasks import deliver_notification
-                deliver_notification.delay(str(log.id))
+                try:
+                    deliver_notification.delay(str(log.id))
+                except Exception:
+                    # Celery/broker unavailable (e.g. no Redis on the host) must
+                    # never crash the caller — deliver synchronously instead.
+                    logger.warning('Async notification dispatch failed; sending '
+                                   'synchronously for log %s', log.id, exc_info=True)
+                    try:
+                        deliver_notification(str(log.id))
+                    except Exception:
+                        logger.exception('Synchronous notification fallback failed '
+                                         'for log %s', log.id)
             else:
                 kwargs = {'log': log}
                 if channel == 'email':
