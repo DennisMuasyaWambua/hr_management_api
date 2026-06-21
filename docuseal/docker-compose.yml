@@ -1,0 +1,48 @@
+# Self-hosted DocuSeal (e-signature server).
+#
+# DocuSeal is a separate application — the Django HR-API only talks to it over
+# HTTP via apps/core/services/docuseal.py. Run this, then wire the resulting
+# URL + API token into the HR-API service env (see README.md in this folder).
+#
+#   docker compose -f docuseal/docker-compose.yml up -d
+#
+# Defaults are for local/VPS use. On Railway, deploy the docuseal/docuseal image
+# as its own service with a Postgres plugin instead (see README.md).
+
+services:
+  docuseal:
+    image: docuseal/docuseal:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Point DocuSeal at its own Postgres
+      DATABASE_URL: postgresql://docuseal:${POSTGRES_PASSWORD:-docuseal}@postgres:5432/docuseal
+      # Required: a long random string (generate: openssl rand -hex 64)
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      # Public host DocuSeal is served on (used in signing links/emails)
+      HOST: ${DOCUSEAL_HOST:-localhost:3000}
+      # SMTP so DocuSeal can email signers (use your provider's creds)
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@sheerlogic.co.ke}
+    depends_on:
+      - postgres
+    volumes:
+      - docuseal_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: docuseal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docuseal}
+      POSTGRES_DB: docuseal
+    volumes:
+      - docuseal_pg:/var/lib/postgresql/data
+
+volumes:
+  docuseal_data:
+  docuseal_pg:
