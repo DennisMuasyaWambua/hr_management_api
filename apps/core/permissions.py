@@ -37,6 +37,11 @@ PAYROLL_ROLES = {'super_admin', 'company_admin', 'internal_hr', 'deployed_hr', '
 # Deployed roles are scoped to only the employees explicitly assigned to them.
 DEPLOYED_ROLES = {'deployed_hr', 'deployed_manager'}
 
+# Roles that may switch between companies / view all companies. For these the
+# scope follows the explicit selection (the company switcher's company_id query
+# param), NOT their own home company — and "no selection" means all companies.
+CROSS_COMPANY_ROLES = {'super_admin', 'company_admin'}
+
 
 def request_role(request) -> str | None:
     return request.headers.get('X-User-Role') or None
@@ -83,7 +88,6 @@ def scope_employee_queryset(qs, request, *, id_field='id'):
       - others / unknown: unrestricted only under legacy (non-strict) mode
     """
     role = request_role(request)
-    company_id = request_company_id(request)
 
     if role == 'super_admin' or role is None:
         return qs  # super admin, or legacy caller without headers
@@ -92,12 +96,27 @@ def scope_employee_queryset(qs, request, *, id_field='id'):
         emp_ids = assigned_employee_ids(request_user_id(request))
         return qs.filter(**{f'{id_field}__in': emp_ids})
 
-    # company_admin + internal HR/managers: whole company
+    if role in CROSS_COMPANY_ROLES:
+        # Cross-company: honor only the switcher's explicit selection; an absent
+        # selection means "All Companies" (no scoping). Ignore the home-company
+        # X-Company-Id header so these roles aren't pinned to one company.
+        selected = (request.query_params.get('company_id')
+                    or request.query_params.get('companyId'))
+        if selected:
+            return _filter_company(qs, selected, id_field)
+        return qs
+
+    # internal HR/managers: their own company (header or param)
+    company_id = request_company_id(request)
     if company_id:
-        if id_field == 'id':
-            return qs.filter(company_id=company_id)
-        return qs.filter(**{f'{id_field}__in': _company_employee_ids(company_id)})
+        return _filter_company(qs, company_id, id_field)
     return qs
+
+
+def _filter_company(qs, company_id, id_field):
+    if id_field == 'id':
+        return qs.filter(company_id=company_id)
+    return qs.filter(**{f'{id_field}__in': _company_employee_ids(company_id)})
 
 
 def _company_employee_ids(company_id):
