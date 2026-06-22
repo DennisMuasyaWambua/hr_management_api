@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'apps.core',
     'apps.hr',
     'apps.attendance',
+    'storages',
     'apps.recruitment',
 ]
 
@@ -95,7 +96,6 @@ if not _DATABASE_URL:
         'Locally: copy .env.example to .env and fill in your database URL.'
     )
 
-_DATABASE_URL = _resolve_database_url()
 DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -277,9 +277,32 @@ GROQ_MODEL = config('GROQ_MODEL', default='llama3-70b-8192')
 # endpoints. Keep False until the dashboard forwards X-User-Role everywhere.
 RBAC_STRICT = config('RBAC_STRICT', default=False, cast=bool)
 
-# Generated documents (payroll PDFs/Excel)
-MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
-MEDIA_URL = '/media/'
+# File storage — T3 Storage (S3-compatible) when credentials are present,
+# otherwise falls back to local filesystem (useful for runserver without creds).
+_T3_KEY = config('T3_ACCESS_KEY_ID', default='')
+if _T3_KEY:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+            'OPTIONS': {
+                'endpoint_url': config('T3_ENDPOINT_URL', default='https://t3.storageapi.dev'),
+                'access_key': _T3_KEY,
+                'secret_key': config('T3_SECRET_ACCESS_KEY', default=''),
+                'bucket_name': config('T3_BUCKET_NAME', default='hr-media'),
+                'region_name': config('T3_REGION', default='auto'),
+                'default_acl': None,
+                'file_overwrite': False,
+                'object_parameters': {'CacheControl': 'max-age=86400'},
+            },
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
+    MEDIA_URL = config('T3_ENDPOINT_URL', default='https://t3.storageapi.dev') + '/' + config('T3_BUCKET_NAME', default='hr-media') + '/'
+else:
+    MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
+    MEDIA_URL = '/media/'
 
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)

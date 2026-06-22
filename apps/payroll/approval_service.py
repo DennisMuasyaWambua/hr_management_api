@@ -50,8 +50,12 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
                                   company_id=run.company_id, tenant_id=run.tenant_id)
         from django.conf import settings
         base = getattr(settings, 'PUBLIC_API_BASE_URL', 'http://localhost:8000')
-        approve_url = docuseal_links.get(approver.email) or \
-            f'{base}/api/one-tap/{token.token}/'
+        # Demo DocuSeal submissions return a stub 'docuseal.demo' URL that
+        # doesn't exist; fall back to the always-functional one-tap link.
+        signing_url = docuseal_links.get(approver.email, '')
+        approve_url = (signing_url
+                       if signing_url and 'docuseal.demo' not in signing_url
+                       else f'{base}/api/one-tap/{token.token}/')
         notif.notify('payroll.pending_approval',
                      [{'email': approver.email, 'phone': approver.phone}],
                      {'period': run.period_display,

@@ -2,6 +2,7 @@
 Core API: RBAC management (frontend autonomy), notifications, one-tap
 approvals, audit log access.
 """
+from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -265,9 +266,91 @@ class OneTapApprovalView(APIView):
     )
     def get(self, request, token):
         t = self._get_token(token)
+        wants_html = 'text/html' in request.headers.get('Accept', '')
+
         if t is None or not t.is_valid:
+            if wants_html:
+                return HttpResponse(
+                    '<html><body style="font-family:sans-serif;text-align:center;padding:60px">'
+                    '<h2 style="color:#dc2626">&#10005; Link expired or already used</h2>'
+                    '<p>This approval link has either been used or has expired.</p></body></html>',
+                    status=404, content_type='text/html')
             return Response({'valid': False, 'error': 'Token invalid, used or expired'},
                             status=status.HTTP_404_NOT_FOUND)
+
+        if wants_html:
+            action_label = t.action.replace('_', ' ').replace('.', ' — ').title()
+            expires = t.expires_at.strftime('%d %b %Y %H:%M') if t.expires_at else 'N/A'
+            url = request.build_absolute_uri()
+            html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payroll Approval</title>
+  <style>
+    body {{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+           background:#f8fafc;display:flex;align-items:center;justify-content:center;
+           min-height:100vh;margin:0;}}
+    .card {{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);
+             padding:40px;max-width:420px;width:100%;text-align:center;}}
+    h2 {{color:#1e293b;margin-bottom:6px;}}
+    .badge {{display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:20px;
+              padding:4px 14px;font-size:13px;font-weight:600;margin-bottom:20px;}}
+    .info {{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+             padding:14px;margin:20px 0;text-align:left;font-size:14px;}}
+    .info p {{margin:4px 0;color:#166534;}}
+    button {{background:#16a34a;color:#fff;border:none;width:100%;padding:14px;
+              border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;
+              margin-top:8px;transition:background .2s;}}
+    button:hover {{background:#15803d;}}
+    button:disabled {{background:#9ca3af;cursor:not-allowed;}}
+    .msg {{margin-top:16px;font-size:14px;display:none;}}
+    .success {{color:#16a34a;}} .error {{color:#dc2626;}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Sheer Logic HR</div>
+    <h2>&#128196; Payroll Approval</h2>
+    <p style="color:#64748b;font-size:14px">You have been asked to approve a payroll run.</p>
+    <div class="info">
+      <p><strong>Action:</strong> {action_label}</p>
+      <p><strong>Expires:</strong> {expires}</p>
+    </div>
+    <p style="font-size:13px;color:#64748b">
+      Clicking Approve records your signature. Disbursement is enabled once the required number of approvers have signed.
+    </p>
+    <button id="btn" onclick="doApprove()">&#10003;&nbsp; Approve Payroll</button>
+    <div class="msg success" id="ok">&#10003; Approved! Disbursement has been enabled.</div>
+    <div class="msg error" id="err"></div>
+  </div>
+  <script>
+    async function doApprove() {{
+      const btn = document.getElementById('btn');
+      btn.disabled = true; btn.textContent = 'Approving…';
+      try {{
+        const r = await fetch('{url}', {{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+        const d = await r.json();
+        if (d.ok) {{
+          btn.style.display='none';
+          document.getElementById('ok').style.display='block';
+        }} else {{
+          btn.disabled=false; btn.textContent='✓ Approve Payroll';
+          const e=document.getElementById('err');
+          e.textContent=d.error||'Something went wrong'; e.style.display='block';
+        }}
+      }} catch(ex) {{
+        btn.disabled=false; btn.textContent='✓ Approve Payroll';
+        const e=document.getElementById('err');
+        e.textContent='Network error — please try again.'; e.style.display='block';
+      }}
+    }}
+  </script>
+</body>
+</html>"""
+            return HttpResponse(html, content_type='text/html')
+
         return Response({'valid': True, 'action': t.action, 'object_id': t.object_id,
                          'expires_at': t.expires_at})
 

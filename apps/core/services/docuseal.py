@@ -104,9 +104,10 @@ def create_submission(template_id, approvers: list[dict], *, send_email=True,
         json={
             'template_id': template_id,
             'send_email': send_email,
+            'metadata': metadata or {},
             'submitters': [
                 {'role': 'Approver', 'name': a.get('name', ''), 'email': a['email'],
-                 'phone': a.get('phone', ''), 'metadata': metadata or {}}
+                 'phone': a.get('phone', '')}
                 for a in approvers
             ],
         },
@@ -125,7 +126,10 @@ def get_signed_document(submission_id) -> bytes | None:
                         headers=_headers(), timeout=_TIMEOUT)
     if not resp.ok:
         raise DocuSealError(f'Document fetch failed: {resp.status_code}')
-    docs = resp.json()
-    if docs and docs[0].get('url'):
-        return requests.get(docs[0]['url'], timeout=_TIMEOUT).content
+    payload = resp.json()
+    doc_list = payload if isinstance(payload, list) else payload.get('documents', [])
+    if doc_list:
+        url = doc_list[0].get('url')
+        if url:
+            return requests.get(url, timeout=_TIMEOUT).content
     return None

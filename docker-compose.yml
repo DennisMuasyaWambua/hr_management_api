@@ -1,0 +1,100 @@
+# Sheer Logic HR-API — local / VPS deployment
+#
+# Usage:
+#   docker compose up -d            # start everything
+#   docker compose logs -f web      # tail Django logs
+#   docker compose exec web python manage.py shell
+#
+# First-run, after `docker compose up -d`, seed static data:
+#   docker compose exec web python manage.py seed_rbac
+#   docker compose exec web python manage.py seed_statutory
+#
+# Copy .env.example to .env and fill in secrets before starting.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-hrdb}
+      POSTGRES_USER: ${DB_USER:-hruser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hruser} -d ${DB_NAME:-hrdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Run migrations before starting gunicorn (mirrors the Railway Procfile release step).
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py create_admin &&
+             gunicorn hr_api.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A hr_api worker -l info
+
+  beat:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A hr_api beat -l info
+
+volumes:
+  pg_data:
+  redis_data:
