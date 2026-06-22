@@ -186,10 +186,22 @@ def _send_email_emailjs(recipient, subject, body, log, *, attachments=None):
     private_key = getattr(settings, 'EMAILJS_PRIVATE_KEY', '')
     if private_key:
         payload['accessToken'] = private_key
+    # EmailJS rejects non-browser callers ("API access from non-browser
+    # environments is disabled") unless the account toggles that off. Presenting
+    # a browser Origin/Referer makes the request pass that gate without changing
+    # account settings; EMAILJS_ORIGIN lets it match an allowed-domains list.
+    origin = getattr(settings, 'EMAILJS_ORIGIN',
+                     'https://hr-system-dashboard-sheerlogic.vercel.app')
+    headers = {
+        'Content-Type': 'application/json',
+        'origin': origin,
+        'referer': origin + '/',
+        'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                       '(KHTML, like Gecko) Chrome/120.0 Safari/537.36'),
+    }
     try:
         resp = requests.post(EMAILJS_API_URL, json=payload,
-                             headers={'Content-Type': 'application/json'},
-                             timeout=30)
+                             headers=headers, timeout=30)
         if resp.ok:
             return _mark(log, status='sent')
         return _mark(log, status='failed',

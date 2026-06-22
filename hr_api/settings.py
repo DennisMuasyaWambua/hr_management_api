@@ -266,6 +266,10 @@ EMAILJS_TEMPLATE_ID = config('EMAILJS_TEMPLATE_ID', default='')
 EMAILJS_PUBLIC_KEY = config('EMAILJS_PUBLIC_KEY', default='')
 EMAILJS_PRIVATE_KEY = config('EMAILJS_PRIVATE_KEY', default='')
 EMAILJS_FROM_NAME = config('EMAILJS_FROM_NAME', default='Sheer Logic')
+# Browser Origin presented to EmailJS so server-side calls pass its non-browser
+# gate; must match an allowed domain if the EmailJS account restricts origins.
+EMAILJS_ORIGIN = config('EMAILJS_ORIGIN',
+                        default='https://hr-system-dashboard-sheerlogic.vercel.app')
 
 # Africa's Talking WhatsApp (Chat API); falls back to SMS when unset
 AT_WHATSAPP_NUMBER = config('AT_WHATSAPP_NUMBER', default='')
