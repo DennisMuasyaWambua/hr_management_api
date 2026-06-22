@@ -98,6 +98,7 @@ class AuthLoginView(views.APIView):
             'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
             'role': getattr(profile, 'role', 'super_admin'),
             'company_id': str(getattr(profile, 'company_id', '') or ''),
+            'tenant_id': str(getattr(profile, 'tenant_id', '') or ''),
             'employee_id': str(getattr(profile, 'employee_id', '') or ''),
         })
 
@@ -171,6 +172,14 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
         emp_type = self.request.query_params.get('employmentType')
         if emp_type:
             qs = qs.filter(employment_type=emp_type)
+        # Contract expiry filters used by the dashboard summary
+        p = self.request.query_params
+        if p.get('end_date_after'):
+            qs = qs.filter(end_date__gte=p['end_date_after'])
+        if p.get('end_date_before'):
+            qs = qs.filter(end_date__lte=p['end_date_before'])
+        if p.get('employment_status'):
+            qs = qs.filter(employment_status=p['employment_status'])
         # Deployed HR/Managers only see their assigned employees; internal roles
         # and company_admin are scoped to their company. (super_admin: all)
         from apps.core.permissions import scope_employee_queryset

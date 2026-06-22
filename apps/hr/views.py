@@ -401,12 +401,22 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        req_status = self.request.query_params.get('status')
-        if req_status:
-            qs = qs.filter(status=req_status)
-        leave_type = self.request.query_params.get('leave_type')
-        if leave_type:
-            qs = qs.filter(leave_type=leave_type)
+        p = self.request.query_params
+        if p.get('status'):
+            qs = qs.filter(status=p['status'])
+        if p.get('leave_type'):
+            qs = qs.filter(leave_type=p['leave_type'])
+        if p.get('employee_id'):
+            qs = qs.filter(employee_id=p['employee_id'])
+        # Date-range filters used by the dashboard summary (on-leave-today)
+        if p.get('start_date_before'):
+            qs = qs.filter(start_date__lte=p['start_date_before'])
+        if p.get('end_date_after'):
+            qs = qs.filter(end_date__gte=p['end_date_after'])
+        if p.get('start_date_after'):
+            qs = qs.filter(start_date__gte=p['start_date_after'])
+        if p.get('end_date_before'):
+            qs = qs.filter(end_date__lte=p['end_date_before'])
         return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
