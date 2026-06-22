@@ -483,7 +483,10 @@ class AnnouncementViewSet(CompanyScopedViewSet):
     http_method_names = ['get', 'post', 'head', 'options']
     queryset = Announcement.objects.filter(is_deleted=False)
     serializer_class = AnnouncementSerializer
-    rbac_module = 'announcements'
+    # Announcements are company-wide notices; reads are open to any
+    # authenticated company member (company scoping restricts the rows).
+    # Writes still require the notifications.manage grant (HR/admin tier).
+    rbac_module = 'notifications'
 
     def get_queryset(self):
         from django.db.models import Q
