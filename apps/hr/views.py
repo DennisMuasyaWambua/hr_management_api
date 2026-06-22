@@ -66,16 +66,102 @@ class CompanyScopedViewSet(viewsets.ModelViewSet):
 
 # --- Allowances / deductions -------------------------------------------------
 
+import calendar as _calendar
+import datetime as _datetime
+
+
+def _end_of_month(d):
+    return _datetime.date(d.year, d.month, _calendar.monthrange(d.year, d.month)[1])
+
+
+def _next_month_end(d):
+    nxt = (d.replace(day=1) + _datetime.timedelta(days=32)).replace(day=1)
+    return _end_of_month(nxt)
+
+
+class MonthlyLineItemMixin:
+    """Allowances/deductions apply for a single month by default and must be
+    renewed to carry over. On create, effective_to defaults to the end of the
+    effective_from month; `renew` extends by one more month."""
+
+    def perform_create(self, serializer):
+        eff_from = serializer.validated_data.get('effective_from') or timezone.localdate()
+        extra = {}
+        if not serializer.validated_data.get('effective_to'):
+            extra['effective_to'] = _end_of_month(eff_from)
+        company_id = request_company_id(self.request)
+        if company_id and hasattr(serializer.Meta.model, 'company_id'):
+            extra['company_id'] = serializer.validated_data.get('company_id') or company_id
+        if hasattr(serializer.Meta.model, 'created_by'):
+            extra['created_by'] = request_user_id(self.request)
+        instance = serializer.save(**extra)
+        ServiceAuditLog.log(
+            f'{self.rbac_module}.created', request=self.request,
+            object_type=instance.__class__.__name__, object_id=str(instance.id),
+            company_id=getattr(instance, 'company_id', None))
+
+    @action(detail=True, methods=['post'])
+    def renew(self, request, pk=None):
+        """Manually extend this line item by one more month."""
+        obj = self.get_object()
+        base = obj.effective_to or timezone.localdate()
+        obj.effective_to = _next_month_end(base)
+        obj.is_active = True
+        obj.save()
+        ServiceAuditLog.log(
+            f'{self.rbac_module}.renewed', request=request,
+            object_type=obj.__class__.__name__, object_id=str(obj.id),
+            company_id=getattr(obj, 'company_id', None),
+            metadata={'effective_to': str(obj.effective_to)})
+        return Response(self.get_serializer(obj).data)
+
+
 class AllowanceTypeViewSet(CompanyScopedViewSet):
     queryset = AllowanceType.objects.all()
     serializer_class = AllowanceTypeSerializer
     rbac_module = 'allowances'
 
 
-class EmployeeAllowanceViewSet(CompanyScopedViewSet):
+class EmployeeAllowanceViewSet(MonthlyLineItemMixin, CompanyScopedViewSet):
     queryset = EmployeeAllowance.objects.select_related('allowance_type')
     serializer_class = EmployeeAllowanceSerializer
     rbac_module = 'allowances'
+
+    @action(detail=False, methods=['post'])
+    def assign_department(self, request):
+        """Grant an allowance to every active employee in a department (or the
+        whole company when no department is given). Defaults to one month."""
+        from apps.payroll.models import EmployeeProfile
+        d = request.data
+        company_id = request_company_id(request)
+        try:
+            allowance_type_id = d['allowance_type']
+            amount = d['amount']
+        except KeyError as exc:
+            return Response({'error': f'missing {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+        eff_from = d.get('effective_from') or str(timezone.localdate())
+        eff_from_date = _datetime.date.fromisoformat(eff_from)
+        eff_to = d.get('effective_to') or str(_end_of_month(eff_from_date))
+        emps = EmployeeProfile.objects.filter(
+            company_id=company_id, employment_status='active', is_deleted=False)
+        if d.get('department'):
+            emps = emps.filter(department=d['department'])
+        created = []
+        for emp in emps:
+            obj = EmployeeAllowance.objects.create(
+                tenant_id=emp.tenant_id, company_id=company_id,
+                employee_id=emp.id, allowance_type_id=allowance_type_id,
+                amount=amount, effective_from=eff_from_date, effective_to=eff_to,
+                is_active=True, created_by=request_user_id(request))
+            created.append(str(obj.id))
+        ServiceAuditLog.log(
+            'allowances.assigned_department', request=request,
+            object_type='EmployeeAllowance', object_id='',
+            company_id=company_id,
+            metadata={'department': d.get('department') or 'ALL', 'count': len(created)})
+        return Response({'created': len(created), 'department': d.get('department') or 'ALL',
+                         'effective_from': eff_from, 'effective_to': eff_to},
+                        status=status.HTTP_201_CREATED)
 
 
 class DeductionTypeViewSet(CompanyScopedViewSet):
@@ -84,7 +170,7 @@ class DeductionTypeViewSet(CompanyScopedViewSet):
     rbac_module = 'allowances'
 
 
-class EmployeeDeductionViewSet(CompanyScopedViewSet):
+class EmployeeDeductionViewSet(MonthlyLineItemMixin, CompanyScopedViewSet):
     queryset = EmployeeDeduction.objects.select_related('deduction_type')
     serializer_class = EmployeeDeductionSerializer
     rbac_module = 'allowances'

@@ -356,27 +356,56 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 'net': Decimal('0'),
             }
 
-            for employee in employees:
-                # Calculate deductions
-                calcs = calculator.calculate_all(
-                    gross_pay=employee.salary,
-                    helb_deduction=Decimal('0')  # Can be extended
-                )
+            # Active allowances/deductions for this payroll period. Allowances
+            # default to a single month (effective_to set at creation) and must
+            # be renewed to carry over; we honour whatever window is stored.
+            import datetime as _dt
+            from apps.hr.models import EmployeeAllowance, EmployeeDeduction
+            _year, _month = payroll_run.period_year, payroll_run.period_month
+            _first = _dt.date(_year, _month, 1)
+            _emp_ids = [e.id for e in employees]
+            allow_by_emp, ded_by_emp = {}, {}
+            for a in EmployeeAllowance.objects.filter(
+                    employee_id__in=_emp_ids, is_active=True
+            ).select_related('allowance_type'):
+                if a.active_for(_year, _month):
+                    allow_by_emp.setdefault(str(a.employee_id), []).append(a)
+            for d in EmployeeDeduction.objects.filter(
+                    employee_id__in=_emp_ids, is_active=True):
+                if (d.effective_from <= _first.replace(day=28) and
+                        (d.effective_to is None or d.effective_to >= _first)):
+                    ded_by_emp.setdefault(str(d.employee_id), []).append(d)
 
-                # Map to Supabase schema fields
+            for employee in employees:
+                emp_allows = allow_by_emp.get(str(employee.id), [])
+                taxable_allow = sum((a.amount for a in emp_allows
+                                     if a.allowance_type.taxable), Decimal('0'))
+                nontax_allow = sum((a.amount for a in emp_allows
+                                    if not a.allowance_type.taxable), Decimal('0'))
+                extra_deductions = sum((d.amount for d in
+                                        ded_by_emp.get(str(employee.id), [])),
+                                       Decimal('0'))
+
+                # Taxable allowances are part of the PAYE/statutory base.
+                taxable_gross = employee.salary + taxable_allow
+                calcs = calculator.calculate_all(
+                    gross_pay=taxable_gross, helb_deduction=Decimal('0'))
+
                 paye = calcs['paye']
                 nssf = calcs['nssf_employee']
                 nhif = calcs['nhif']
                 helb = calcs['helb']
-                other_deductions = Decimal('0')
-                total_deductions = paye + nssf + nhif + helb + other_deductions
-                net_salary = employee.salary - total_deductions
+                statutory = paye + nssf + nhif + helb
+                other_deductions = extra_deductions
+                gross_salary = employee.salary + taxable_allow + nontax_allow
+                total_deductions = statutory + other_deductions
+                net_salary = gross_salary - total_deductions
 
                 record = PayrollRecord(
                     tenant_id=payroll_run.tenant_id,
                     payroll_run=payroll_run,
                     employee=employee,
-                    gross_salary=employee.salary,
+                    gross_salary=gross_salary,
                     paye=paye,
                     nssf=nssf,
                     nhif=nhif,
@@ -389,7 +418,7 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 records.append(record)
 
                 # Update totals
-                totals['gross'] += employee.salary
+                totals['gross'] += gross_salary
                 totals['deductions'] += total_deductions
                 totals['net'] += net_salary
 
@@ -664,19 +693,28 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
                     'paid_at': record['paid_at']
                 }
 
-        # Get user names via raw SQL (since User model is external)
+        # Resolve employee names from the users (AppUser) table. Names link to
+        # an employee primarily by users.employee_id == employee.id; fall back to
+        # users.id == employee.user_id for legacy rows.
         from django.db import connection
-        user_names = {}
-        employee_user_ids = list(employees.values_list('user_id', flat=True))
-        if employee_user_ids:
-            with connection.cursor() as cursor:
-                placeholders = ','.join(['%s'] * len(employee_user_ids))
+        names_by_emp, names_by_user = {}, {}
+        emp_ids = [str(e.id) for e in employees]
+        user_ids = [str(e.user_id) for e in employees if e.user_id]
+        with connection.cursor() as cursor:
+            if emp_ids:
+                ph = ','.join(['%s'] * len(emp_ids))
                 cursor.execute(
-                    f"SELECT id, full_name FROM users WHERE id IN ({placeholders})",
-                    employee_user_ids
-                )
+                    f"SELECT employee_id, full_name FROM users "
+                    f"WHERE employee_id IN ({ph})", emp_ids)
                 for row in cursor.fetchall():
-                    user_names[str(row[0])] = row[1]
+                    if row[0]:
+                        names_by_emp[str(row[0])] = row[1]
+            if user_ids:
+                ph = ','.join(['%s'] * len(user_ids))
+                cursor.execute(
+                    f"SELECT id, full_name FROM users WHERE id IN ({ph})", user_ids)
+                for row in cursor.fetchall():
+                    names_by_user[str(row[0])] = row[1]
 
         # Build response data
         employee_data = []
@@ -687,8 +725,11 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
             payment_info = payment_status_map.get(emp_id, {})
             payment_status = payment_info.get('status', 'pending')
 
-            # Add user_full_name attribute for serializer
-            emp.user_full_name = user_names.get(str(emp.user_id), emp.job_title)
+            # Add user_full_name attribute for serializer (employee_id link
+            # first, then user_id, then the job title as a last resort).
+            emp.user_full_name = (names_by_emp.get(str(emp.id))
+                                  or names_by_user.get(str(emp.user_id))
+                                  or emp.job_title)
             emp.payment_status = payment_status
             emp.last_paid_at = payment_info.get('paid_at')
 
