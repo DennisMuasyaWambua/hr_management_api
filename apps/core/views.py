@@ -258,6 +258,31 @@ class OneTapApprovalView(APIView):
         except OneTapToken.DoesNotExist:
             return None
 
+    @staticmethod
+    def _payroll_detail_html(token):
+        """Employee list + totals shown on the approval page for a payroll run."""
+        try:
+            from apps.payroll.approval_service import _employee_rows
+            from apps.payroll.models import Company, PayrollRun
+            run = PayrollRun.objects.get(id=token.object_id)
+        except Exception:  # noqa: BLE001 — page must still render if lookup fails
+            return ''
+        rows, count, gross, deductions, net = _employee_rows(run)
+        company = Company.objects.filter(id=run.company_id).first()
+        company_name = company.name if company else ''
+        return (
+            f'<div class="info" style="background:#f8fafc;border-color:#e2e8f0">'
+            f'<p style="color:#1e293b"><strong>{company_name}</strong> — '
+            f'Payroll {run.period_display} ({count} employee'
+            f'{"s" if count != 1 else ""})</p></div>'
+            f'<table><tr><th>Name</th><th>Role</th><th class="r">Gross</th>'
+            f'<th class="r">Net</th></tr>{rows}'
+            f'<tr style="font-weight:bold;background:#f8fafc">'
+            f'<td colspan="2">Totals</td><td class="r">KES {gross:,.2f}</td>'
+            f'<td class="r">KES {net:,.2f}</td></tr></table>'
+            f'<p style="font-size:12px;color:#64748b;text-align:left">'
+            f'Total deductions: KES {deductions:,.2f}</p>')
+
     @extend_schema(
         summary='Inspect a one-tap approval token',
         request=None,
@@ -282,6 +307,19 @@ class OneTapApprovalView(APIView):
             action_label = t.action.replace('_', ' ').replace('.', ' — ').title()
             expires = t.expires_at.strftime('%d %b %Y %H:%M') if t.expires_at else 'N/A'
             url = request.build_absolute_uri()
+            needs_sig = t.action == 'payroll.approve'
+            detail_html = self._payroll_detail_html(t) if needs_sig else ''
+            sig_html = (
+                '<p style="font-size:13px;color:#475569;text-align:left;margin:18px 0 6px">'
+                '<strong>Draw your signature below to approve:</strong></p>'
+                '<canvas id="sig" width="360" height="140" '
+                'style="border:1px dashed #94a3b8;border-radius:8px;width:100%;'
+                'touch-action:none;background:#fff;cursor:crosshair"></canvas>'
+                '<div style="text-align:right;margin:4px 0 8px">'
+                '<a href="#" id="clear" style="font-size:12px;color:#64748b">Clear</a></div>'
+            ) if needs_sig else ''
+            btn_label = '&#9997; Sign &amp; Approve' if needs_sig else '&#10003;&nbsp; Approve'
+            js_needs_sig = 'true' if needs_sig else 'false'
             html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -291,15 +329,18 @@ class OneTapApprovalView(APIView):
   <style>
     body {{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
            background:#f8fafc;display:flex;align-items:center;justify-content:center;
-           min-height:100vh;margin:0;}}
+           min-height:100vh;margin:0;padding:20px;}}
     .card {{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);
-             padding:40px;max-width:420px;width:100%;text-align:center;}}
+             padding:32px;max-width:480px;width:100%;text-align:center;}}
     h2 {{color:#1e293b;margin-bottom:6px;}}
     .badge {{display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:20px;
               padding:4px 14px;font-size:13px;font-weight:600;margin-bottom:20px;}}
     .info {{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
-             padding:14px;margin:20px 0;text-align:left;font-size:14px;}}
+             padding:14px;margin:16px 0;text-align:left;font-size:14px;}}
     .info p {{margin:4px 0;color:#166534;}}
+    table {{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0;}}
+    th,td {{padding:5px 8px;border-bottom:1px solid #eee;text-align:left;}}
+    th {{background:#f1f5f9;}} td.r,th.r {{text-align:right;}}
     button {{background:#16a34a;color:#fff;border:none;width:100%;padding:14px;
               border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;
               margin-top:8px;transition:background .2s;}}
@@ -313,37 +354,62 @@ class OneTapApprovalView(APIView):
   <div class="card">
     <div class="badge">Sheer Logic HR</div>
     <h2>&#128196; Payroll Approval</h2>
-    <p style="color:#64748b;font-size:14px">You have been asked to approve a payroll run.</p>
+    <p style="color:#64748b;font-size:14px">You have been asked to review, sign and approve this payroll.</p>
+    {detail_html}
     <div class="info">
       <p><strong>Action:</strong> {action_label}</p>
       <p><strong>Expires:</strong> {expires}</p>
     </div>
+    {sig_html}
     <p style="font-size:13px;color:#64748b">
-      Clicking Approve records your signature. Disbursement is enabled once the required number of approvers have signed.
+      Approving records your signature. Disbursement is enabled once the required number of approvers have signed.
     </p>
-    <button id="btn" onclick="doApprove()">&#10003;&nbsp; Approve Payroll</button>
+    <button id="btn" onclick="doApprove()">{btn_label}</button>
     <div class="msg success" id="ok">&#10003; Approved! Disbursement has been enabled.</div>
     <div class="msg error" id="err"></div>
   </div>
   <script>
+    const NEEDS_SIG = {js_needs_sig};
+    let sigCtx=null, drawing=false, hasInk=false;
+    if (NEEDS_SIG) {{
+      const c=document.getElementById('sig');
+      sigCtx=c.getContext('2d'); sigCtx.lineWidth=2; sigCtx.lineCap='round'; sigCtx.strokeStyle='#1e293b';
+      const pos=e=>{{const r=c.getBoundingClientRect();const t=e.touches?e.touches[0]:e;
+        return {{x:(t.clientX-r.left)*(c.width/r.width), y:(t.clientY-r.top)*(c.height/r.height)}};}};
+      const start=e=>{{drawing=true;const p=pos(e);sigCtx.beginPath();sigCtx.moveTo(p.x,p.y);e.preventDefault();}};
+      const move=e=>{{if(!drawing)return;const p=pos(e);sigCtx.lineTo(p.x,p.y);sigCtx.stroke();hasInk=true;e.preventDefault();}};
+      const end=()=>{{drawing=false;}};
+      c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);
+      window.addEventListener('mouseup',end);
+      c.addEventListener('touchstart',start);c.addEventListener('touchmove',move);
+      c.addEventListener('touchend',end);
+      document.getElementById('clear').addEventListener('click',ev=>{{
+        ev.preventDefault();sigCtx.clearRect(0,0,c.width,c.height);hasInk=false;}});
+    }}
     async function doApprove() {{
       const btn = document.getElementById('btn');
-      btn.disabled = true; btn.textContent = 'Approving…';
+      const err = document.getElementById('err'); err.style.display='none';
+      let signature='';
+      if (NEEDS_SIG) {{
+        if(!hasInk) {{ err.textContent='Please draw your signature first.'; err.style.display='block'; return; }}
+        signature=document.getElementById('sig').toDataURL('image/png');
+      }}
+      btn.disabled = true; btn.textContent = 'Submitting…';
       try {{
-        const r = await fetch('{url}', {{method:'POST',headers:{{'Content-Type':'application/json'}}}});
+        const r = await fetch('{url}', {{method:'POST',
+          headers:{{'Content-Type':'application/json'}},
+          body: JSON.stringify({{signature}})}});
         const d = await r.json();
         if (d.ok) {{
           btn.style.display='none';
           document.getElementById('ok').style.display='block';
         }} else {{
-          btn.disabled=false; btn.textContent='✓ Approve Payroll';
-          const e=document.getElementById('err');
-          e.textContent=d.error||'Something went wrong'; e.style.display='block';
+          btn.disabled=false; btn.innerHTML='{btn_label}';
+          err.textContent=d.error||(d.result&&d.result.error)||'Something went wrong'; err.style.display='block';
         }}
       }} catch(ex) {{
-        btn.disabled=false; btn.textContent='✓ Approve Payroll';
-        const e=document.getElementById('err');
-        e.textContent='Network error — please try again.'; e.style.display='block';
+        btn.disabled=false; btn.innerHTML='{btn_label}';
+        err.textContent='Network error — please try again.'; err.style.display='block';
       }}
     }}
   </script>

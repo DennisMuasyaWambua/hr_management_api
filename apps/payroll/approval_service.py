@@ -45,6 +45,8 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
     run.save(update_fields=['status', 'updated_at'])
 
     company = Company.objects.filter(id=run.company_id).first()
+    company_name = company.name if company else ''
+    rows_html, count, gross, deductions, net = _employee_rows(run)
     for approver in approvers:
         token = OneTapToken.issue('payroll.approve', run.id, approver.user_id,
                                   company_id=run.company_id, tenant_id=run.tenant_id)
@@ -56,15 +58,27 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
         approve_url = (signing_url
                        if signing_url and 'docuseal.demo' not in signing_url
                        else f'{base}/api/one-tap/{token.token}/')
-        notif.notify('payroll.pending_approval',
-                     [{'email': approver.email, 'phone': approver.phone}],
-                     {'period': run.period_display,
-                      'company_name': company.name if company else '',
-                      'approvals_count': 0,
-                      'required_approvals': config.required_approvals,
-                      'approve_url': approve_url},
-                     channels=('email', 'sms'), company_id=run.company_id,
-                     related=('payroll_run', run.id))
+        # Detailed HTML email (employee names + figures); EmailJS templates are
+        # HTML so we use markup for layout.
+        subject = (f'Payroll {run.period_display} — {company_name}: '
+                   f'review, sign & approve ({count} employee'
+                   f'{"s" if count != 1 else ""})')
+        body_html = _approval_email_html(company_name, run.period_display, rows_html,
+                                         count, gross, deductions, net,
+                                         config.required_approvals, approve_url)
+        if approver.email:
+            notif.send_email(approver.email, subject, body_html,
+                             event='payroll.pending_approval',
+                             company_id=run.company_id, tenant_id=run.tenant_id,
+                             related=('payroll_run', run.id))
+        # SMS stays a short link only — payroll figures must never go over SMS.
+        if approver.phone:
+            notif.send_sms(approver.phone,
+                           f'Payroll {run.period_display} ({company_name}) needs your '
+                           f'approval & signature. Review & sign: {approve_url}',
+                           event='payroll.pending_approval',
+                           company_id=run.company_id, tenant_id=run.tenant_id,
+                           related=('payroll_run', run.id))
 
     ServiceAuditLog.log('payroll.submitted_for_approval', request=request,
                         object_type='PayrollRun', object_id=str(run.id),
@@ -76,6 +90,79 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
     return {'status': run.status, 'approvers_notified': len(approvers),
             'required_approvals': config.required_approvals,
             'document_id': str(doc.id)}
+
+
+def _employee_name(emp) -> str:
+    """Resolve a display name for an employee. Names live on AppUser
+    (linked by AppUser.employee_id == EmployeeProfile.id); fall back to the
+    employee number when no user account exists."""
+    from apps.core.models import AppUser
+    au = AppUser.objects.filter(employee_id=emp.id).first()
+    if au and au.full_name:
+        return au.full_name
+    return emp.employee_number or 'Employee'
+
+
+def _employee_rows(run):
+    """Return (html_table_rows, count, gross, deductions, net) for a run."""
+    from decimal import Decimal
+    rows = []
+    count = 0
+    gross = deductions = net = Decimal('0')
+    for rec in run.records.select_related('employee').filter(is_deleted=False):
+        emp = rec.employee
+        name = _employee_name(emp)
+        ded = (rec.gross_salary or 0) - (rec.net_salary or 0)
+        rows.append(
+            f'<tr>'
+            f'<td style="padding:6px 10px;border-bottom:1px solid #eee">{name}</td>'
+            f'<td style="padding:6px 10px;border-bottom:1px solid #eee">'
+            f'{emp.job_title or emp.employee_number}</td>'
+            f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
+            f'KES {rec.gross_salary:,.2f}</td>'
+            f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
+            f'KES {rec.net_salary:,.2f}</td>'
+            f'</tr>')
+        count += 1
+        gross += rec.gross_salary or 0
+        deductions += ded
+        net += rec.net_salary or 0
+    return ''.join(rows), count, gross, deductions, net
+
+
+def _approval_email_html(company_name, period, rows_html, count, gross,
+                         deductions, net, required, approve_url) -> str:
+    """Detailed payroll approval email body (HTML, rendered by EmailJS)."""
+    return (
+        f'<div style="font-family:Arial,sans-serif;color:#1e293b;font-size:14px">'
+        f'<p>Payroll for <strong>{period}</strong> at <strong>{company_name}</strong> '
+        f'is ready for your approval and signature.</p>'
+        f'<p style="margin:16px 0 6px"><strong>Employees on this payroll '
+        f'({count}):</strong></p>'
+        f'<table style="border-collapse:collapse;width:100%;font-size:13px">'
+        f'<tr style="background:#f1f5f9">'
+        f'<th style="padding:6px 10px;text-align:left">Name</th>'
+        f'<th style="padding:6px 10px;text-align:left">Role</th>'
+        f'<th style="padding:6px 10px;text-align:right">Gross</th>'
+        f'<th style="padding:6px 10px;text-align:right">Net</th></tr>'
+        f'{rows_html}'
+        f'<tr style="background:#f8fafc;font-weight:bold">'
+        f'<td style="padding:6px 10px" colspan="2">Totals</td>'
+        f'<td style="padding:6px 10px;text-align:right">KES {gross:,.2f}</td>'
+        f'<td style="padding:6px 10px;text-align:right">KES {net:,.2f}</td></tr>'
+        f'</table>'
+        f'<p style="margin-top:10px;color:#475569">Total deductions: '
+        f'KES {deductions:,.2f} &nbsp;•&nbsp; Approvals required: {required}</p>'
+        f'<p style="margin:24px 0">'
+        f'<a href="{approve_url}" style="background:#16a34a;color:#fff;'
+        f'text-decoration:none;padding:12px 24px;border-radius:8px;'
+        f'font-weight:bold;display:inline-block">Review, Sign &amp; Approve</a></p>'
+        f'<p style="color:#64748b;font-size:12px">Opening the link shows the '
+        f'payroll summary and a signature pad — draw your signature and approve '
+        f'to enable disbursement. The full payslip PDF is attached in the system '
+        f'records.</p>'
+        f'<p style="color:#94a3b8;font-size:12px">Sheer Logic HR</p>'
+        f'</div>')
 
 
 def _open_docuseal_submission(run, doc, approvers) -> dict:
@@ -105,7 +192,7 @@ def _open_docuseal_submission(run, doc, approvers) -> dict:
 @transaction.atomic
 def record_approval(payroll_run_id, approver_user_id, *, via='dashboard',
                     decision='approved', comment='', docuseal_slug='',
-                    request=None) -> dict:
+                    signature_image='', request=None) -> dict:
     """
     Record one approver's decision; flip the run to `approved` when quorum is
     reached. Idempotent per (run, approver) — duplicate signatures are no-ops.
@@ -129,6 +216,7 @@ def record_approval(payroll_run_id, approver_user_id, *, via='dashboard',
         defaults={'decision': decision, 'via': via, 'comment': comment,
                   'company_id': run.company_id, 'tenant_id': run.tenant_id,
                   'docuseal_submitter_slug': docuseal_slug,
+                  'signature_image': signature_image or '',
                   'ip_address': _ip(request)})
     if not created:
         return {'status': 'duplicate', 'note': 'approval already recorded'}

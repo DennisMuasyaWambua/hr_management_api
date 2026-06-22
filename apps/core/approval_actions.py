@@ -38,8 +38,13 @@ def execute_one_tap_action(token, request):
 
     if action == 'payroll.approve':
         from apps.payroll.approval_service import record_approval
+        signature = ''
+        data = getattr(request, 'data', None) if request is not None else None
+        if isinstance(data, dict):
+            signature = data.get('signature', '') or ''
         return record_approval(payroll_run_id=token.object_id,
                                approver_user_id=token.approver_user_id,
-                               via='one_tap', request=request)
+                               via='one_tap', signature_image=signature,
+                               request=request)
 
     return {'error': f'unknown action {action}'}

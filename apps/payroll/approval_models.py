@@ -66,6 +66,8 @@ class PayrollApproval(models.Model):
     via = models.CharField(max_length=10, choices=VIA, default='dashboard')
     comment = models.TextField(blank=True, default='')
     docuseal_submitter_slug = models.CharField(max_length=100, blank=True, default='')
+    # Hand-drawn signature captured on the approval page (base64 PNG data URL).
+    signature_image = models.TextField(blank=True, default='')
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     signed_at = models.DateTimeField(default=timezone.now)
 
