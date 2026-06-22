@@ -63,16 +63,29 @@ TEMPLATES = [
 WSGI_APPLICATION = 'hr_api.wsgi.application'
 
 # Database — always PostgreSQL via DATABASE_URL.
-# Railway auto-injects DATABASE_URL / DATABASE_PRIVATE_URL when a Postgres service
-# is linked; DATABASE_PUBLIC_URL is the external proxy. Fall back through all three
-# so the app starts regardless of how the Railway project is wired.
+# Railway auto-injects several variable names depending on project wiring.
+# We check all known forms so the app starts regardless of how the project is set up.
 import dj_database_url as _dj_db_url
 import os as _os
+
+
+def _build_pg_url_from_components() -> str:
+    host = _os.environ.get('PGHOST') or _os.environ.get('RAILWAY_DB_HOST', '')
+    user = _os.environ.get('PGUSER', 'postgres')
+    password = _os.environ.get('PGPASSWORD', '')
+    port = _os.environ.get('PGPORT', '5432')
+    dbname = _os.environ.get('PGDATABASE', 'railway')
+    if host and password:
+        from urllib.parse import quote_plus
+        return f'postgresql://{user}:{quote_plus(password)}@{host}:{port}/{dbname}'
+    return ''
+
 
 _DATABASE_URL = (
     config('DATABASE_URL', default='')
     or _os.environ.get('DATABASE_PRIVATE_URL', '')
     or _os.environ.get('DATABASE_PUBLIC_URL', '')
+    or _build_pg_url_from_components()
 )
 if not _DATABASE_URL:
     raise RuntimeError(
