@@ -116,6 +116,11 @@ TIME_ZONE = 'Africa/Nairobi'
 USE_I18N = True
 USE_TZ = True
 
+# Railway terminates TLS at its edge and forwards plain HTTP with an
+# X-Forwarded-Proto header. Without this, request.build_absolute_uri() returns
+# http:// URLs, so the approval page's fetch() is blocked as mixed content.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

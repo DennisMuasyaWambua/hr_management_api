@@ -260,28 +260,34 @@ class OneTapApprovalView(APIView):
 
     @staticmethod
     def _payroll_detail_html(token):
-        """Employee list + totals shown on the approval page for a payroll run."""
+        """Employee table (with deduction breakdown) shown on the approval page."""
         try:
-            from apps.payroll.approval_service import _employee_rows
+            from apps.payroll.approval_service import _EMAIL_COLS, _employee_rows
             from apps.payroll.models import Company, PayrollRun
             run = PayrollRun.objects.get(id=token.object_id)
         except Exception:  # noqa: BLE001 — page must still render if lookup fails
             return ''
-        rows, count, gross, deductions, net = _employee_rows(run)
+        rows, count, totals = _employee_rows(run)
         company = Company.objects.filter(id=run.company_id).first()
         company_name = company.name if company else ''
+        head = ''.join(
+            f'<th class="{"r" if align == "right" else ""}">{label}</th>'
+            for _k, label, align in _EMAIL_COLS)
+        totals_cells = ''.join(
+            ('<td><strong>Totals</strong></td>' if key == 'name' else
+             ('<td></td>' if key == 'role' else
+              f'<td class="r"><strong>KES {totals[key]:,.2f}</strong></td>'))
+            for key, _h, _a in _EMAIL_COLS)
         return (
             f'<div class="info" style="background:#f8fafc;border-color:#e2e8f0">'
             f'<p style="color:#1e293b"><strong>{company_name}</strong> — '
             f'Payroll {run.period_display} ({count} employee'
             f'{"s" if count != 1 else ""})</p></div>'
-            f'<table><tr><th>Name</th><th>Role</th><th class="r">Gross</th>'
-            f'<th class="r">Net</th></tr>{rows}'
-            f'<tr style="font-weight:bold;background:#f8fafc">'
-            f'<td colspan="2">Totals</td><td class="r">KES {gross:,.2f}</td>'
-            f'<td class="r">KES {net:,.2f}</td></tr></table>'
+            f'<div style="overflow-x:auto"><table><tr>{head}</tr>{rows}'
+            f'<tr style="background:#f8fafc">{totals_cells}</tr></table></div>'
             f'<p style="font-size:12px;color:#64748b;text-align:left">'
-            f'Total deductions: KES {deductions:,.2f}</p>')
+            f'Total deductions: KES {totals["deductions"]:,.2f} '
+            f'(PAYE + NSSF + NHIF + HELB)</p>')
 
     @extend_schema(
         summary='Inspect a one-tap approval token',
@@ -396,7 +402,9 @@ class OneTapApprovalView(APIView):
       }}
       btn.disabled = true; btn.textContent = 'Submitting…';
       try {{
-        const r = await fetch('{url}', {{method:'POST',
+        // Post to the page's own URL (https as loaded) — avoids mixed-content
+        // when Railway's proxy makes the server build an http:// absolute URI.
+        const r = await fetch(window.location.href, {{method:'POST',
           headers:{{'Content-Type':'application/json'}},
           body: JSON.stringify({{signature}})}});
         const d = await r.json();
