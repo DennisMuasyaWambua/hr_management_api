@@ -51,6 +51,36 @@ from .tasks import process_payment_batch, process_ipn_callback
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+# Authority ranking (lower = more authority) used to surface a user's highest
+# role at login. A user's AppUser.role is compared against any RBAC role
+# assignments so that e.g. an hr_admin granted the company_admin RBAC role logs
+# in as company_admin (full dashboard access).
+_ROLE_RANK = {
+    'super_admin': 0, 'company_admin': 1,
+    'hr_admin': 2, 'hr': 2, 'internal_hr': 2, 'deployed_hr': 2,
+    'manager': 3, 'internal_manager': 3, 'deployed_manager': 3,
+    'employee': 4, 'white_collar_employee': 4, 'blue_collar_employee': 4,
+}
+
+
+def _effective_role(profile):
+    """Highest-authority role for a user: the better of their AppUser.role and
+    any assigned RBAC role."""
+    if profile is None:
+        return 'super_admin'  # legacy: tokenless/no-profile users
+    best = getattr(profile, 'role', None) or 'employee'
+    best_rank = _ROLE_RANK.get(best, 5)
+    try:
+        from apps.core.models import UserRoleAssignment
+        for a in UserRoleAssignment.objects.filter(
+                user_id=profile.id).select_related('role'):
+            slug = a.role.slug
+            if _ROLE_RANK.get(slug, 5) < best_rank:
+                best, best_rank = slug, _ROLE_RANK.get(slug, 5)
+    except Exception:  # noqa: BLE001 — never block login on RBAC lookup
+        logger.exception('effective-role lookup failed for %s', profile.id)
+    return best
+
 
 class AuthLoginView(views.APIView):
     """
@@ -106,7 +136,7 @@ class AuthLoginView(views.APIView):
             'email': user.email,
             'username': user.username,
             'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
-            'role': getattr(profile, 'role', 'super_admin'),
+            'role': _effective_role(profile),
             'company_id': str(getattr(profile, 'company_id', '') or ''),
             'tenant_id': str(getattr(profile, 'tenant_id', '') or ''),
             'employee_id': str(getattr(profile, 'employee_id', '') or ''),
