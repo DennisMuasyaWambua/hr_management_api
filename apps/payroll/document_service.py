@@ -7,7 +7,7 @@ import secrets
 from django.core.files.base import ContentFile
 
 from apps.core.models import ServiceAuditLog
-from apps.core.services import documents as docsvc
+from apps.payroll.services import documents as docsvc
 
 from .approval_models import PayrollDocument
 from .models import Company, PayrollRun

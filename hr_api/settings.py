@@ -95,6 +95,7 @@ if not _DATABASE_URL:
         'Locally: copy .env.example to .env and fill in your database URL.'
     )
 
+_DATABASE_URL = _resolve_database_url()
 DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -267,6 +268,10 @@ SMILEID_DEMO_MODE = config('SMILEID_DEMO_MODE', default=True, cast=bool)
 
 # Public base URL used in one-tap links sent over SMS/WhatsApp
 PUBLIC_API_BASE_URL = config('PUBLIC_API_BASE_URL', default='http://localhost:8000')
+
+# GROQ — server-side AI candidate scoring
+GROQ_API_KEY = config('GROQ_API_KEY', default='')
+GROQ_MODEL = config('GROQ_MODEL', default='llama3-70b-8192')
 
 # RBAC: when True, requests without role headers are denied on protected
 # endpoints. Keep False until the dashboard forwards X-User-Role everywhere.

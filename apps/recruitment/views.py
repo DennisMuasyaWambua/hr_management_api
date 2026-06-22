@@ -138,21 +138,30 @@ class PublicApplyView(APIView):
             data_retention_months=request.data.get('data_retention_months'),
         )
 
-        # AI screening results — Next.js still runs the Groq/Claude call, this
-        # just persists whatever it came back with and decides auto-reject
-        # itself (the public job serializer doesn't expose
-        # auto_reject_threshold, so the caller can't compute this).
-        ai_fields = ['ai_score', 'ai_summary', 'ai_experience_years', 'ai_education']
-        if any(f in request.data for f in ai_fields):
-            for f in ai_fields:
-                if f in request.data:
-                    setattr(candidate, f, request.data[f])
-            score = request.data.get('ai_score')
-            if score is not None and score < job.auto_reject_threshold:
-                candidate.current_stage = 'rejected'
-                candidate.rejection_reason = (
-                    f'Auto-rejected: score {score} below threshold {job.auto_reject_threshold}')
-            candidate.save()
+        # Server-side AI scoring via GROQ — cv_text is required for scoring.
+        cv_text = candidate.cv_text or ''
+        if cv_text:
+            from .groq_scoring import GroqScoringError, score_candidate
+            try:
+                scores = score_candidate(
+                    job_title=job.title,
+                    job_description=job.description or '',
+                    cv_text=cv_text,
+                )
+                for field, value in scores.items():
+                    setattr(candidate, field, value)
+                if (candidate.ai_score is not None
+                        and candidate.ai_score < job.auto_reject_threshold):
+                    candidate.current_stage = 'rejected'
+                    candidate.rejection_reason = (
+                        f'Auto-rejected: score {candidate.ai_score:.1f} below '
+                        f'threshold {job.auto_reject_threshold}')
+                candidate.save()
+            except GroqScoringError:
+                # Scoring failure must not block the application submission.
+                import logging
+                logging.getLogger(__name__).warning(
+                    'GROQ scoring failed for candidate %s', candidate.id, exc_info=True)
 
         return Response(CandidateSerializer(candidate).data, status=201)
 
