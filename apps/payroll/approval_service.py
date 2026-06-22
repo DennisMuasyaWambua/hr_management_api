@@ -46,7 +46,7 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
 
     company = Company.objects.filter(id=run.company_id).first()
     company_name = company.name if company else ''
-    rows_html, count, gross, deductions, net = _employee_rows(run)
+    items, count, gross, deductions, net = _run_summary(run)
     for approver in approvers:
         token = OneTapToken.issue('payroll.approve', run.id, approver.user_id,
                                   company_id=run.company_id, tenant_id=run.tenant_id)
@@ -58,16 +58,16 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
         approve_url = (signing_url
                        if signing_url and 'docuseal.demo' not in signing_url
                        else f'{base}/api/one-tap/{token.token}/')
-        # Detailed HTML email (employee names + figures); EmailJS templates are
-        # HTML so we use markup for layout.
+        # Detailed plain-text email (employee names + figures). EmailJS escapes
+        # {{message}}, so HTML would show as raw tags — plain text renders cleanly.
         subject = (f'Payroll {run.period_display} — {company_name}: '
                    f'review, sign & approve ({count} employee'
                    f'{"s" if count != 1 else ""})')
-        body_html = _approval_email_html(company_name, run.period_display, rows_html,
-                                         count, gross, deductions, net,
-                                         config.required_approvals, approve_url)
+        body = _approval_email_text(company_name, run.period_display, items,
+                                    count, gross, deductions, net,
+                                    config.required_approvals, approve_url)
         if approver.email:
-            notif.send_email(approver.email, subject, body_html,
+            notif.send_email(approver.email, subject, body,
                              event='payroll.pending_approval',
                              company_id=run.company_id, tenant_id=run.tenant_id,
                              related=('payroll_run', run.id))
@@ -103,66 +103,73 @@ def _employee_name(emp) -> str:
     return emp.employee_number or 'Employee'
 
 
-def _employee_rows(run):
-    """Return (html_table_rows, count, gross, deductions, net) for a run."""
+def _run_summary(run):
+    """Return (items, count, gross, deductions, net) for a run, where each item
+    is {'name', 'role', 'gross', 'net'}. Shared by the email and approval page."""
     from decimal import Decimal
-    rows = []
-    count = 0
+    items = []
     gross = deductions = net = Decimal('0')
     for rec in run.records.select_related('employee').filter(is_deleted=False):
         emp = rec.employee
-        name = _employee_name(emp)
-        ded = (rec.gross_salary or 0) - (rec.net_salary or 0)
-        rows.append(
-            f'<tr>'
-            f'<td style="padding:6px 10px;border-bottom:1px solid #eee">{name}</td>'
-            f'<td style="padding:6px 10px;border-bottom:1px solid #eee">'
-            f'{emp.job_title or emp.employee_number}</td>'
-            f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
-            f'KES {rec.gross_salary:,.2f}</td>'
-            f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
-            f'KES {rec.net_salary:,.2f}</td>'
-            f'</tr>')
-        count += 1
-        gross += rec.gross_salary or 0
-        deductions += ded
-        net += rec.net_salary or 0
-    return ''.join(rows), count, gross, deductions, net
+        g = rec.gross_salary or Decimal('0')
+        n = rec.net_salary or Decimal('0')
+        items.append({'name': _employee_name(emp),
+                      'role': emp.job_title or emp.employee_number,
+                      'gross': g, 'net': n})
+        gross += g
+        net += n
+        deductions += g - n
+    return items, len(items), gross, deductions, net
 
 
-def _approval_email_html(company_name, period, rows_html, count, gross,
+def _employee_rows(run):
+    """HTML table rows for the approval page. Returns (rows, count, gross,
+    deductions, net)."""
+    items, count, gross, deductions, net = _run_summary(run)
+    rows = ''.join(
+        f'<tr>'
+        f'<td style="padding:6px 10px;border-bottom:1px solid #eee">{it["name"]}</td>'
+        f'<td style="padding:6px 10px;border-bottom:1px solid #eee">{it["role"]}</td>'
+        f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
+        f'KES {it["gross"]:,.2f}</td>'
+        f'<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'
+        f'KES {it["net"]:,.2f}</td></tr>'
+        for it in items)
+    return rows, count, gross, deductions, net
+
+
+def _approval_email_text(company_name, period, items, count, gross,
                          deductions, net, required, approve_url) -> str:
-    """Detailed payroll approval email body (HTML, rendered by EmailJS)."""
-    return (
-        f'<div style="font-family:Arial,sans-serif;color:#1e293b;font-size:14px">'
-        f'<p>Payroll for <strong>{period}</strong> at <strong>{company_name}</strong> '
-        f'is ready for your approval and signature.</p>'
-        f'<p style="margin:16px 0 6px"><strong>Employees on this payroll '
-        f'({count}):</strong></p>'
-        f'<table style="border-collapse:collapse;width:100%;font-size:13px">'
-        f'<tr style="background:#f1f5f9">'
-        f'<th style="padding:6px 10px;text-align:left">Name</th>'
-        f'<th style="padding:6px 10px;text-align:left">Role</th>'
-        f'<th style="padding:6px 10px;text-align:right">Gross</th>'
-        f'<th style="padding:6px 10px;text-align:right">Net</th></tr>'
-        f'{rows_html}'
-        f'<tr style="background:#f8fafc;font-weight:bold">'
-        f'<td style="padding:6px 10px" colspan="2">Totals</td>'
-        f'<td style="padding:6px 10px;text-align:right">KES {gross:,.2f}</td>'
-        f'<td style="padding:6px 10px;text-align:right">KES {net:,.2f}</td></tr>'
-        f'</table>'
-        f'<p style="margin-top:10px;color:#475569">Total deductions: '
-        f'KES {deductions:,.2f} &nbsp;•&nbsp; Approvals required: {required}</p>'
-        f'<p style="margin:24px 0">'
-        f'<a href="{approve_url}" style="background:#16a34a;color:#fff;'
-        f'text-decoration:none;padding:12px 24px;border-radius:8px;'
-        f'font-weight:bold;display:inline-block">Review, Sign &amp; Approve</a></p>'
-        f'<p style="color:#64748b;font-size:12px">Opening the link shows the '
-        f'payroll summary and a signature pad — draw your signature and approve '
-        f'to enable disbursement. The full payslip PDF is attached in the system '
-        f'records.</p>'
-        f'<p style="color:#94a3b8;font-size:12px">Sheer Logic HR</p>'
-        f'</div>')
+    """Detailed payroll approval email body as plain text. EmailJS renders
+    newlines in {{message}} as line breaks, so no HTML markup is used."""
+    lines = [
+        f'Payroll {period} — {company_name}',
+        'This payroll is ready for your approval and signature.',
+        '',
+        f'Employees on this payroll ({count}):',
+        '----------------------------------------',
+    ]
+    for it in items:
+        lines.append(f'• {it["name"]} — {it["role"]}')
+        lines.append(f'    Gross: KES {it["gross"]:,.2f}    Net: KES {it["net"]:,.2f}')
+    lines += [
+        '----------------------------------------',
+        'Totals:',
+        f'  Gross pay:        KES {gross:,.2f}',
+        f'  Total deductions: KES {deductions:,.2f}',
+        f'  Net pay:          KES {net:,.2f}',
+        '',
+        f'Approvals required: {required}',
+        '',
+        'Review the payroll, draw your signature and approve here:',
+        approve_url,
+        '',
+        'Opening the link shows this summary and a signature pad — draw your',
+        'signature and approve to enable disbursement.',
+        '',
+        'Sheer Logic HR',
+    ]
+    return '\n'.join(lines)
 
 
 def _open_docuseal_submission(run, doc, approvers) -> dict:
