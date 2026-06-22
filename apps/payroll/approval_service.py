@@ -27,13 +27,23 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
     DocuSeal submission, and notifies every configured approver (email + SMS
     with one-tap link + DocuSeal signing link).
     """
-    if run.status not in ('draft', 'calculated'):
-        raise ApprovalError(f'Run is {run.status}; only draft/calculated can be submitted.')
+    if run.status not in ('draft', 'calculated', 'pending_approval'):
+        raise ApprovalError(f'Run is {run.status}; only draft/calculated/'
+                            f'pending_approval can be submitted.')
     config = ApproverConfig.objects.filter(company_id=run.company_id,
                                            is_active=True).first()
     if config is None or not config.approvers.filter(is_active=True).exists():
         raise ApprovalError('No approver configuration for this company. '
                             'Create one at api/approver-config/ first.')
+
+    # Re-submitting a pending run resends it: clear the prior cycle's approvals,
+    # unsigned/unlocked documents and one-tap tokens so we regenerate cleanly.
+    if run.status == 'pending_approval':
+        from apps.core.models import OneTapToken
+        PayrollApproval.objects.filter(payroll_run_id=run.id).delete()
+        PayrollDocument.objects.filter(payroll_run_id=run.id, is_locked=False).delete()
+        OneTapToken.objects.filter(action='payroll.approve',
+                                   object_id=str(run.id), used_at__isnull=True).delete()
 
     from .document_service import generate_run_documents
     doc = generate_run_documents(run, triggered_by=triggered_by)
