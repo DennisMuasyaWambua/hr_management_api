@@ -419,29 +419,79 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
             qs = qs.filter(end_date__lte=p['end_date_before'])
         return qs.order_by('-created_at')
 
+    def _employee_contact(self, employee_id):
+        """Return {'email': ..., 'phone': ...} for the employee, or None."""
+        from apps.payroll.models import EmployeeProfile
+        from apps.core.models import AppUser
+        emp = EmployeeProfile.objects.filter(id=employee_id, is_deleted=False).first()
+        if emp is None:
+            return None
+        user = AppUser.objects.filter(id=emp.user_id).first()
+        return {
+            'email': user.email if user else None,
+            'phone': emp.mpesa_number or emp.next_of_kin_phone,
+            'full_name': user.full_name if user else str(employee_id)[:8],
+            'manager_id': emp.manager_id,
+        }
+
+    def _manager_contact(self, manager_id):
+        """Return {'email': ..., 'phone': ...} for the manager, or None."""
+        from apps.payroll.models import EmployeeProfile
+        from apps.core.models import AppUser
+        emp = EmployeeProfile.objects.filter(user_id=manager_id, is_deleted=False).first()
+        user = AppUser.objects.filter(id=manager_id).first()
+        return {
+            'email': user.email if user else None,
+            'phone': emp.mpesa_number if emp else None,
+        }
+
     def perform_create(self, serializer):
         super().perform_create(serializer)
         leave = serializer.instance
-        # Notify HR/admins for this company — fire-and-forget, mirrors
-        # LeaveRecallViewSet's manager notification. No-ops with a warning
-        # log if the 'leave.requested' template hasn't been seeded yet.
-        if leave.company_id:
-            from apps.core.models import AppUser
-            recipients = [
-                {'email': u.email} for u in
-                AppUser.objects.filter(company_id=leave.company_id,
-                                       role__in=['hr_admin', 'super_admin'],
-                                       is_deleted=False)[:10]
-            ]
-            if recipients:
-                notif.notify('leave.requested', recipients, {
-                    'leave_type': leave.leave_type,
-                    'start_date': str(leave.start_date),
-                    'end_date': str(leave.end_date),
-                    'days_requested': str(leave.days_requested),
-                    'reason': leave.reason,
-                }, channels=('email',), company_id=leave.company_id,
-                tenant_id=leave.tenant_id, related=('leave', leave.id))
+        if not leave.company_id:
+            return
+
+        ctx = {
+            'leave_type': leave.leave_type,
+            'start_date': str(leave.start_date),
+            'end_date': str(leave.end_date),
+            'days_requested': str(leave.days_requested),
+            'reason': leave.reason,
+        }
+
+        # 1. Notify the employee's direct manager (one-tap approve link)
+        emp_info = self._employee_contact(leave.employee_id)
+        employee_name = emp_info['full_name'] if emp_info else 'Employee'
+        ctx['employee_name'] = employee_name
+
+        manager_notified = False
+        if emp_info and emp_info.get('manager_id'):
+            manager = self._manager_contact(emp_info['manager_id'])
+            if manager and (manager['email'] or manager['phone']):
+                token = OneTapToken.issue(
+                    'leave.approve', leave.id, emp_info['manager_id'],
+                    company_id=leave.company_id, tenant_id=leave.tenant_id)
+                ctx['approve_url'] = _one_tap_url(token)
+                notif.notify('leave.requested', [manager], ctx,
+                             channels=('email', 'sms'),
+                             company_id=leave.company_id,
+                             tenant_id=leave.tenant_id,
+                             related=('leave', leave.id))
+                manager_notified = True
+
+        # 2. Always notify HR/admins as well (email only)
+        from apps.core.models import AppUser
+        hr_recipients = [
+            {'email': u.email} for u in
+            AppUser.objects.filter(company_id=leave.company_id,
+                                   role__in=['hr_admin', 'super_admin'],
+                                   is_deleted=False)[:10]
+            if u.email
+        ]
+        if hr_recipients:
+            notif.notify('leave.requested', hr_recipients, ctx,
+                         channels=('email',), company_id=leave.company_id,
+                         tenant_id=leave.tenant_id, related=('leave', leave.id))
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -453,6 +503,17 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
         ServiceAuditLog.log('leave.approved', request=request,
                             object_type='LeaveRequest', object_id=str(leave.id),
                             company_id=leave.company_id)
+        # Notify the employee of the decision
+        emp_info = self._employee_contact(leave.employee_id)
+        if emp_info and (emp_info['email'] or emp_info['phone']):
+            notif.notify('leave.approved', [emp_info], {
+                'employee_name': emp_info['full_name'],
+                'leave_type': leave.leave_type,
+                'start_date': str(leave.start_date),
+                'end_date': str(leave.end_date),
+                'days_requested': str(leave.days_requested),
+            }, channels=('email', 'sms'), company_id=leave.company_id,
+            tenant_id=leave.tenant_id, related=('leave', leave.id))
         return Response(self.get_serializer(leave).data)
 
     @action(detail=True, methods=['post'])
@@ -461,7 +522,37 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
         if leave.status != 'pending':
             return Response({'error': f'Already {leave.status}'},
                             status=status.HTTP_409_CONFLICT)
-        leave.reject(request_user_id(request), request.data.get('rejection_reason', ''))
+        rejection_reason = request.data.get('rejection_reason', '')
+        leave.reject(request_user_id(request), rejection_reason)
+        ServiceAuditLog.log('leave.rejected', request=request,
+                            object_type='LeaveRequest', object_id=str(leave.id),
+                            company_id=leave.company_id)
+        # Notify the employee of the rejection
+        emp_info = self._employee_contact(leave.employee_id)
+        if emp_info and (emp_info['email'] or emp_info['phone']):
+            notif.notify('leave.rejected', [emp_info], {
+                'employee_name': emp_info['full_name'],
+                'leave_type': leave.leave_type,
+                'start_date': str(leave.start_date),
+                'end_date': str(leave.end_date),
+                'days_requested': str(leave.days_requested),
+                'rejection_reason': rejection_reason or 'No reason provided',
+            }, channels=('email', 'sms'), company_id=leave.company_id,
+            tenant_id=leave.tenant_id, related=('leave', leave.id))
+        return Response(self.get_serializer(leave).data)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Employee cancels their own pending request."""
+        leave = self.get_object()
+        if leave.status != 'pending':
+            return Response({'error': 'Only pending requests can be cancelled'},
+                            status=status.HTTP_409_CONFLICT)
+        leave.status = 'cancelled'
+        leave.save(update_fields=['status', 'updated_at'])
+        ServiceAuditLog.log('leave.cancelled', request=request,
+                            object_type='LeaveRequest', object_id=str(leave.id),
+                            company_id=leave.company_id)
         return Response(self.get_serializer(leave).data)
 
 

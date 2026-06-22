@@ -29,7 +29,21 @@ DEFAULT_TEMPLATES = {
     'leave.requested': {
         'subject': 'Leave request from {employee_name}',
         'body': ('{employee_name} requested {leave_type} leave '
-                 '({start_date} to {end_date}). Approve: {approve_url}'),
+                 '({start_date} to {end_date}, {days_requested} day(s)). '
+                 'Reason: {reason}. Approve: {approve_url}'),
+    },
+    'leave.approved': {
+        'subject': 'Your leave has been approved',
+        'body': ('Hi {employee_name}, your {leave_type} leave request '
+                 '({start_date} to {end_date}, {days_requested} day(s)) '
+                 'has been approved. Enjoy your time off!'),
+    },
+    'leave.rejected': {
+        'subject': 'Your leave request was not approved',
+        'body': ('Hi {employee_name}, your {leave_type} leave request '
+                 '({start_date} to {end_date}, {days_requested} day(s)) '
+                 'was not approved. Reason: {rejection_reason}. '
+                 'Please contact HR if you have questions.'),
     },
     'leave.recall_requested': {
         'subject': 'Leave recall for {employee_name}',
