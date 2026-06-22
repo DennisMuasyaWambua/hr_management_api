@@ -309,6 +309,75 @@ class ExitClearanceItem(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Exit Clearance (structured, one per exit — separate from ExitClearanceItem list)
+# ---------------------------------------------------------------------------
+
+def _section_fields(prefix: str):
+    """Return the four field definitions for a clearance section."""
+    return {
+        f'{prefix}_cleared': models.BooleanField(default=False),
+        f'{prefix}_cleared_by': models.CharField(max_length=200, blank=True, default=''),
+        f'{prefix}_cleared_at': models.DateTimeField(null=True, blank=True),
+        f'{prefix}_notes': models.TextField(blank=True, default=''),
+    }
+
+
+class ExitClearance(TenantStamped):
+    STATUS = [('pending', 'Pending'), ('in_progress', 'In Progress'),
+              ('complete', 'Complete')]
+
+    exit = models.OneToOneField(EmployeeExit, on_delete=models.CASCADE,
+                                related_name='clearance')
+    initiated_by = models.UUIDField(null=True, blank=True)
+
+    # IT section
+    it_cleared = models.BooleanField(default=False)
+    it_cleared_by = models.CharField(max_length=200, blank=True, default='')
+    it_cleared_at = models.DateTimeField(null=True, blank=True)
+    it_notes = models.TextField(blank=True, default='')
+
+    # Finance section
+    finance_cleared = models.BooleanField(default=False)
+    finance_cleared_by = models.CharField(max_length=200, blank=True, default='')
+    finance_cleared_at = models.DateTimeField(null=True, blank=True)
+    finance_notes = models.TextField(blank=True, default='')
+
+    # Admin section
+    admin_cleared = models.BooleanField(default=False)
+    admin_cleared_by = models.CharField(max_length=200, blank=True, default='')
+    admin_cleared_at = models.DateTimeField(null=True, blank=True)
+    admin_notes = models.TextField(blank=True, default='')
+
+    # HR section
+    hr_cleared = models.BooleanField(default=False)
+    hr_cleared_by = models.CharField(max_length=200, blank=True, default='')
+    hr_cleared_at = models.DateTimeField(null=True, blank=True)
+    hr_notes = models.TextField(blank=True, default='')
+
+    # Manager section
+    manager_cleared = models.BooleanField(default=False)
+    manager_cleared_by = models.CharField(max_length=200, blank=True, default='')
+    manager_cleared_at = models.DateTimeField(null=True, blank=True)
+    manager_notes = models.TextField(blank=True, default='')
+
+    notes = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=15, choices=STATUS, default='pending')
+
+    SECTIONS = ('it', 'finance', 'admin', 'hr', 'manager')
+
+    def refresh_status(self):
+        all_cleared = all(getattr(self, f'{s}_cleared') for s in self.SECTIONS)
+        any_cleared = any(getattr(self, f'{s}_cleared') for s in self.SECTIONS)
+        new = 'complete' if all_cleared else ('in_progress' if any_cleared else 'pending')
+        if new != self.status:
+            self.status = new
+            self.save(update_fields=['status', 'updated_at'])
+
+    class Meta:
+        db_table = 'exit_clearances'
+
+
+# ---------------------------------------------------------------------------
 # Leave recall
 # ---------------------------------------------------------------------------
 

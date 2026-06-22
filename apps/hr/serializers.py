@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import (AllowanceType, Announcement, BackgroundCheck,
                      ComplianceAlert, DeductionType, DisciplinaryRecord,
                      EmployeeAllowance, EmployeeCertificate,
-                     EmployeeDeduction, EmployeeExit,
+                     EmployeeDeduction, EmployeeExit, ExitClearance,
                      EmployeeOnboardingDocument, ExitClearanceItem,
                      KpiAssignment, LeaveBalance, LeaveRecall, LeaveRequest,
                      MedicalRecord, MinimumWage, OvertimeRequest,
@@ -111,6 +111,11 @@ class EmployeeCertificateSerializer(serializers.ModelSerializer):
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+
+    def get_employee_name(self, obj):
+        return getattr(obj, 'employee_name', None)
+
     class Meta:
         model = LeaveRequest
         fields = '__all__'
@@ -185,3 +190,15 @@ class EmployeeOnboardingDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmployeeOnboardingDocument
         fields = '__all__'
+
+
+class ExitClearanceSerializer(serializers.ModelSerializer):
+    sections_complete = serializers.SerializerMethodField()
+
+    def get_sections_complete(self, obj):
+        return sum(1 for s in ExitClearance.SECTIONS if getattr(obj, f'{s}_cleared'))
+
+    class Meta:
+        model = ExitClearance
+        fields = '__all__'
+        read_only_fields = ['status', 'created_at', 'updated_at']

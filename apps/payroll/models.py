@@ -136,6 +136,9 @@ class EmployeeProfile(models.Model):
     next_of_kin_phone = models.TextField(null=True, blank=True)
     next_of_kin_relationship = models.TextField(null=True, blank=True)
 
+    # Face ID reference — stored as a data URL; used for SmileID enrollment
+    profile_picture_url = models.TextField(null=True, blank=True)
+
     class Meta:
         db_table = 'employee_profiles'
 

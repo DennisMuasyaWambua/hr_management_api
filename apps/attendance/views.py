@@ -302,7 +302,13 @@ class AttendanceEventViewSet(viewsets.ReadOnlyModelViewSet):
     rbac_module = 'attendance'
 
     def get_queryset(self):
-        qs = AttendanceEvent.objects.all()
+        from django.db.models import OuterRef, Subquery
+        from apps.core.models import AppUser
+        qs = AttendanceEvent.objects.annotate(
+            employee_name=Subquery(
+                AppUser.objects.filter(id=OuterRef('employee_id')).values('full_name')[:1]
+            )
+        )
         p = self.request.query_params
         company_id = request_company_id(self.request)
         if company_id:

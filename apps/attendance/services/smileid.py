@@ -37,6 +37,39 @@ def _signature(timestamp: str) -> str:
         hmac.new(key.encode(), msg, hashlib.sha256).digest()).decode()
 
 
+def enroll_face(employee_user_id: str, image_b64: str) -> dict:
+    """
+    Job Type 1 — SmartSelfie Enrollment. Must run once before verify_selfie works
+    in production mode. Returns {'enrolled': bool, 'job_id': str}.
+    """
+    if _demo():
+        return {'enrolled': True, 'job_id': 'demo', 'demo': True}
+
+    timestamp = str(int(time.time() * 1000))
+    base = getattr(settings, 'SMILEID_BASE_URL', 'https://testapi.smileidentity.com/v1')
+    payload = {
+        'partner_id': getattr(settings, 'SMILEID_PARTNER_ID', ''),
+        'signature': _signature(timestamp),
+        'timestamp': timestamp,
+        'partner_params': {
+            'user_id': employee_user_id,
+            'job_id': f'enroll-{timestamp}',
+            'job_type': 1,
+        },
+        'images': [{'image_type_id': 0, 'image': image_b64}],
+        'source_sdk': 'rest_api',
+        'use_enrolled_image': True,
+    }
+    resp = requests.post(f'{base}/upload', json=payload, timeout=60)
+    if not resp.ok:
+        raise SmileIDError(f'Smile ID enrollment error {resp.status_code}: {resp.text[:300]}')
+    data = resp.json()
+    result = data.get('result', data)
+    enrolled = str(result.get('ResultCode', '')) in ('0810', '1210', '0800', '1100')
+    return {'enrolled': enrolled, 'job_id': data.get('job_id', ''),
+            'result_code': result.get('ResultCode', '')}
+
+
 def verify_selfie(employee_user_id: str, selfie_b64: str) -> dict:
     """
     Returns {'verified': bool, 'confidence': float, 'job_id': str}.

@@ -15,7 +15,7 @@ from apps.core.services import notifications as notif
 from .models import (AllowanceType, Announcement, BackgroundCheck,
                      ComplianceAlert, DeductionType, DisciplinaryRecord,
                      EmployeeAllowance, EmployeeCertificate,
-                     EmployeeDeduction, EmployeeExit,
+                     EmployeeDeduction, EmployeeExit, ExitClearance,
                      EmployeeOnboardingDocument, ExitClearanceItem,
                      KpiAssignment, LeaveBalance, LeaveRecall, LeaveRequest,
                      MedicalRecord, MinimumWage, OvertimeRequest,
@@ -27,6 +27,7 @@ from .serializers import (AllowanceTypeSerializer, AnnouncementSerializer,
                           EmployeeAllowanceSerializer,
                           EmployeeCertificateSerializer,
                           EmployeeDeductionSerializer, EmployeeExitSerializer,
+                          ExitClearanceSerializer,
                           EmployeeOnboardingDocumentSerializer,
                           ExitClearanceItemSerializer, KpiAssignmentSerializer,
                           LeaveBalanceSerializer, LeaveRecallSerializer,
@@ -400,7 +401,13 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
     rbac_module = 'leave'
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        from django.db.models import OuterRef, Subquery
+        from apps.core.models import AppUser
+        qs = super().get_queryset().annotate(
+            employee_name=Subquery(
+                AppUser.objects.filter(id=OuterRef('employee_id')).values('full_name')[:1]
+            )
+        )
         p = self.request.query_params
         if p.get('status'):
             qs = qs.filter(status=p['status'])
@@ -408,7 +415,6 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
             qs = qs.filter(leave_type=p['leave_type'])
         if p.get('employee_id'):
             qs = qs.filter(employee_id=p['employee_id'])
-        # Date-range filters used by the dashboard summary (on-leave-today)
         if p.get('start_date_before'):
             qs = qs.filter(start_date__lte=p['start_date_before'])
         if p.get('end_date_after'):
@@ -794,3 +800,69 @@ def _one_tap_url(token):
     from django.conf import settings
     base = getattr(settings, 'PUBLIC_API_BASE_URL', 'http://localhost:8000')
     return f'{base}/api/one-tap/{token.token}/'
+
+
+# ---------------------------------------------------------------------------
+# Exit Clearance — structured per-section sign-off
+# ---------------------------------------------------------------------------
+
+class ExitClearanceViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for the structured ExitClearance record tied to an EmployeeExit.
+    POST   /api/hr/exits/{exit_id}/clearance/   → create (HR initiates)
+    GET    /api/hr/exits/{exit_id}/clearance/   → retrieve
+    PATCH  /api/hr/exits/{exit_id}/clearance/{pk}/ → update individual fields
+    POST   …/{pk}/sign_section/                 → clear one section and record sign-off
+    """
+    serializer_class = ExitClearanceSerializer
+    permission_classes = [HasModulePermission]
+    rbac_module = 'exits'
+
+    def get_queryset(self):
+        exit_id = self.kwargs.get('exit_pk') or self.request.query_params.get('exit_id')
+        qs = ExitClearance.objects.all()
+        if exit_id:
+            qs = qs.filter(exit_id=exit_id)
+        company_id = request_company_id(self.request)
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        return qs
+
+    def perform_create(self, serializer):
+        exit_id = self.kwargs.get('exit_pk') or self.request.data.get('exit')
+        company_id = request_company_id(self.request)
+        try:
+            exit_ = EmployeeExit.objects.get(id=exit_id)
+        except EmployeeExit.DoesNotExist:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'exit': 'Exit record not found.'})
+        serializer.save(exit=exit_, initiated_by=request_user_id(self.request),
+                        company_id=company_id, tenant_id=exit_.tenant_id)
+
+    @action(detail=True, methods=['post'])
+    def sign_section(self, request, pk=None, **kwargs):
+        """
+        Body: {"section": "it"|"finance"|"admin"|"hr"|"manager",
+               "cleared_by": "Jane Wanjiku", "notes": "optional"}
+        Sets <section>_cleared=True, <section>_cleared_by, <section>_cleared_at=now,
+        recalculates status.
+        """
+        clearance = self.get_object()
+        section = request.data.get('section', '').lower()
+        if section not in ExitClearance.SECTIONS:
+            return Response({'error': f'section must be one of {ExitClearance.SECTIONS}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        setattr(clearance, f'{section}_cleared', True)
+        setattr(clearance, f'{section}_cleared_by',
+                request.data.get('cleared_by', ''))
+        setattr(clearance, f'{section}_cleared_at', timezone.now())
+        if request.data.get('notes'):
+            setattr(clearance, f'{section}_notes', request.data['notes'])
+        clearance.save()
+        clearance.refresh_status()
+        ServiceAuditLog.log(
+            f'exits.clearance.{section}_signed', request=request,
+            object_type='ExitClearance', object_id=str(clearance.id),
+            company_id=clearance.company_id,
+            metadata={'section': section, 'status': clearance.status})
+        return Response(ExitClearanceSerializer(clearance).data)

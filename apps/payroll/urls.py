@@ -13,6 +13,7 @@ from .views import (
     CompanyViewSet,
     EmployeeProfileViewSet,
     MyPayslipsView,
+    ProfilePictureView,
 )
 
 from .views_approvals import (ApproverConfigViewSet, DocuSealWebhook,
@@ -39,6 +40,7 @@ urlpatterns = [
     path('api/auth/login/', AuthLoginView.as_view(), name='auth-login'),
     path('api/me/', MeView.as_view(), name='me'),
     path('api/me/payslips/', MyPayslipsView.as_view(), name='my-payslips'),
+    path('api/me/profile-picture/', ProfilePictureView.as_view(), name='me-profile-picture'),
     path('api/pesapal/ipn/', PesaPalIPNWebhook.as_view(), name='pesapal-ipn'),
     path('api/payroll-workflow/<uuid:run_id>/<str:verb>/',
          PayrollWorkflowView.as_view(), name='payroll-workflow'),

@@ -1172,3 +1172,49 @@ class IntaSendConfigViewSet(viewsets.GenericViewSet):
             return Response(result)
         else:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProfilePictureView(views.APIView):
+    """
+    POST /api/me/profile-picture/
+    Body: {"image_b64": "<base64-encoded image, no data: prefix>",
+           "user_id": "<uuid>"}
+    Saves the data URL to employee_profiles.profile_picture_url and
+    triggers SmileID Job Type 1 enrollment in the background.
+    """
+
+    def post(self, request):
+        user_id = request.data.get('user_id') or request_user_id(request)
+        image_b64 = request.data.get('image_b64', '').strip()
+        if not user_id or not image_b64:
+            return Response({'error': 'user_id and image_b64 are required'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Strip data URL prefix if present ("data:image/jpeg;base64,...")
+        if ',' in image_b64:
+            image_b64 = image_b64.split(',', 1)[1]
+
+        data_url = f'data:image/jpeg;base64,{image_b64}'
+
+        updated = EmployeeProfile.objects.filter(
+            user_id=user_id, is_deleted=False,
+        ).update(profile_picture_url=data_url)
+
+        if not updated:
+            return Response({'error': 'Employee profile not found'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        from apps.attendance.services import smileid
+        enrollment: dict = {}
+        try:
+            enrollment = smileid.enroll_face(str(user_id), image_b64)
+        except smileid.SmileIDError as exc:
+            logger.warning('SmileID enrollment failed for user %s: %s', user_id, exc)
+            enrollment = {'enrolled': False, 'error': str(exc)}
+
+        ServiceAuditLog.log(
+            'employee.profile_picture_updated', request=request,
+            object_type='EmployeeProfile', object_id=str(user_id),
+            metadata={'smileid_enrolled': enrollment.get('enrolled', False)})
+
+        return Response({'ok': True, 'smileid': enrollment})

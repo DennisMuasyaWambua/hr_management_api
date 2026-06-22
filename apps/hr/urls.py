@@ -6,6 +6,7 @@ from .views import (AllowanceTypeViewSet, AnnouncementViewSet,
                     DeductionTypeViewSet, DisciplinaryRecordViewSet,
                     EmployeeAllowanceViewSet, EmployeeCertificateViewSet,
                     EmployeeDeductionViewSet, EmployeeExitViewSet,
+                    ExitClearanceViewSet,
                     EmployeeOnboardingDocumentViewSet, KpiAssignmentViewSet,
                     LeaveBalanceViewSet, LeaveRecallViewSet,
                     LeaveRequestViewSet, MedicalRecordViewSet,
@@ -26,6 +27,7 @@ router.register('minimum-wages', MinimumWageViewSet, basename='minimum-wages')
 router.register('compliance-alerts', ComplianceAlertViewSet, basename='compliance-alerts')
 router.register('disciplinary', DisciplinaryRecordViewSet, basename='disciplinary')
 router.register('exits', EmployeeExitViewSet, basename='exits')
+router.register('exit-clearances', ExitClearanceViewSet, basename='exit-clearances')
 router.register('leave-recalls', LeaveRecallViewSet, basename='leave-recalls')
 router.register('certificates', EmployeeCertificateViewSet, basename='certificates')
 router.register('leave', LeaveRequestViewSet, basename='leave')
@@ -41,4 +43,13 @@ router.register('onboarding-documents', EmployeeOnboardingDocumentViewSet, basen
 
 urlpatterns = router.urls + [
     path('onboarding/summary/', OnboardingSummaryView.as_view(), name='onboarding-summary'),
+    path('exits/<uuid:exit_pk>/clearance/', ExitClearanceViewSet.as_view({
+        'get': 'list', 'post': 'create',
+    }), name='exit-clearance-list'),
+    path('exits/<uuid:exit_pk>/clearance/<uuid:pk>/', ExitClearanceViewSet.as_view({
+        'get': 'retrieve', 'patch': 'partial_update', 'put': 'update',
+    }), name='exit-clearance-detail'),
+    path('exits/<uuid:exit_pk>/clearance/<uuid:pk>/sign_section/', ExitClearanceViewSet.as_view({
+        'post': 'sign_section',
+    }), name='exit-clearance-sign'),
 ]

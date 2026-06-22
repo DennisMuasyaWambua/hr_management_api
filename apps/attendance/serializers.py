@@ -17,6 +17,11 @@ class ZoneAssignmentSerializer(serializers.ModelSerializer):
 
 
 class AttendanceEventSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+
+    def get_employee_name(self, obj):
+        return getattr(obj, 'employee_name', None)
+
     class Meta:
         model = AttendanceEvent
         fields = '__all__'
