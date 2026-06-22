@@ -11,7 +11,9 @@ from apps.core.models import Permission, Role, RolePermission
 MODULES = ['payroll', 'allowances', 'overtime', 'reimbursements',
            'statutory_rates', 'disciplinary', 'exits', 'leave', 'certificates',
            'attendance', 'geofence', 'notifications', 'rbac', 'audit', 'share',
-           'compliance', 'background_checks']
+           'compliance', 'background_checks',
+           'announcements', 'recruitment', 'medical', 'performance', 'training',
+           'onboarding']
 
 # Strict role chain (lower rank = more authority):
 #   super_admin > company_admin > internal_hr > deployed_hr
@@ -44,9 +46,15 @@ _HR_GRANTS = ['payroll.view', 'payroll.manage', 'allowances.view', 'allowances.m
               'geofence.view', 'notifications.view', 'notifications.manage',
               'audit.view', 'share.manage', 'share.view', 'compliance.view',
               'statutory_rates.view', 'background_checks.view',
-              'background_checks.manage']
+              'background_checks.manage',
+              'announcements.view', 'announcements.manage',
+              'recruitment.view', 'recruitment.manage',
+              'medical.view', 'medical.manage',
+              'performance.view', 'performance.manage',
+              'training.view', 'training.manage',
+              'onboarding.view', 'onboarding.manage']
 _MANAGER_GRANTS = ['leave.view', 'leave.manage', 'overtime.view', 'overtime.manage',
-                   'attendance.view']
+                   'attendance.view', 'announcements.view', 'recruitment.view']
 _EMPLOYEE_GRANTS = ['leave.view', 'overtime.view', 'reimbursements.view',
                     'attendance.view']
 
