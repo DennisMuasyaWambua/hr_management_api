@@ -71,13 +71,19 @@ import os as _os
 
 
 def _build_pg_url_from_components() -> str:
-    host = _os.environ.get('PGHOST') or _os.environ.get('RAILWAY_DB_HOST', '')
-    user = _os.environ.get('PGUSER', 'postgres')
-    password = _os.environ.get('PGPASSWORD', '')
-    port = _os.environ.get('PGPORT', '5432')
-    dbname = _os.environ.get('PGDATABASE', 'railway')
+    from urllib.parse import quote_plus
+    # Check Railway-native PG* vars first, then fall back to legacy DB_* vars
+    host = (_os.environ.get('PGHOST') or _os.environ.get('RAILWAY_DB_HOST')
+            or config('DB_HOST', default=''))
+    user = (_os.environ.get('PGUSER')
+            or config('DB_USER', default='postgres'))
+    password = (_os.environ.get('PGPASSWORD')
+                or config('DB_PASSWORD', default=''))
+    port = (_os.environ.get('PGPORT')
+            or config('DB_PORT', default='5432'))
+    dbname = (_os.environ.get('PGDATABASE')
+              or config('DB_NAME', default='railway'))
     if host and password:
-        from urllib.parse import quote_plus
         return f'postgresql://{user}:{quote_plus(password)}@{host}:{port}/{dbname}'
     return ''
 
