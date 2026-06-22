@@ -58,12 +58,12 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
         approve_url = (signing_url
                        if signing_url and 'docuseal.demo' not in signing_url
                        else f'{base}/api/one-tap/{token.token}/')
-        # Detailed HTML email with a per-employee deduction table. Requires the
-        # EmailJS template to use triple-brace {{{message}}} so the HTML renders.
+        # Plain-text email with a per-employee deduction breakdown (EmailJS
+        # escapes {{message}}, so HTML would show as raw tags).
         subject = (f'Payroll {run.period_display} — {company_name}: '
                    f'review, sign & approve ({count} employee'
                    f'{"s" if count != 1 else ""})')
-        body = _approval_email_html(company_name, run.period_display, items,
+        body = _approval_email_text(company_name, run.period_display, items,
                                     count, totals, config.required_approvals,
                                     approve_url)
         if approver.email:
@@ -147,65 +147,76 @@ def _employee_rows(run):
     return rows, count, totals
 
 
-def _approval_email_html(company_name, period, items, count, totals,
+def _money(v) -> str:
+    return f'KES {v:,.2f}'
+
+
+def _approval_email_text(company_name, period, items, count, totals,
                          required, approve_url) -> str:
-    """Detailed payroll approval email as an HTML table with a per-employee
-    deduction breakdown. NOTE: the EmailJS template must use a *triple-brace*
-    {{{message}}} so this HTML renders instead of showing as escaped text."""
-    head = ''.join(
-        f'<th style="padding:8px;text-align:{align};border-bottom:2px solid #cbd5e1">'
-        f'{label}</th>' for _k, label, align in _EMAIL_COLS)
-    body_rows = ''.join(
-        '<tr>' + ''.join(
-            f'<td style="padding:7px 8px;border-bottom:1px solid #eef2f7;'
-            f'text-align:{align};white-space:nowrap">'
-            f'{it[key] if key in ("name", "role") else "KES " + format(it[key], ",.2f")}'
-            f'</td>'
-            for key, _h, align in _EMAIL_COLS) + '</tr>'
-        for it in items)
-    totals_cells = ''.join(
-        (f'<td style="padding:8px;text-align:left;font-weight:bold;'
-         f'border-top:2px solid #cbd5e1">Totals</td>' if key == 'name' else
-         (f'<td style="border-top:2px solid #cbd5e1"></td>' if key == 'role' else
-          f'<td style="padding:8px;text-align:right;font-weight:bold;'
-          f'border-top:2px solid #cbd5e1">KES {totals[key]:,.2f}</td>'))
-        for key, _h, _a in _EMAIL_COLS)
-    return (
-        f'<div style="font-family:Arial,Helvetica,sans-serif;color:#1e293b;font-size:14px">'
-        f'<h2 style="color:#1e293b;margin:0 0 4px">Payroll Approval — {period}</h2>'
-        f'<p style="margin:0 0 16px;color:#475569"><strong>{company_name}</strong> · '
-        f'{count} employee{"s" if count != 1 else ""} · {required} approval'
-        f'{"s" if required != 1 else ""} required</p>'
-        f'<table style="border-collapse:collapse;width:100%;font-size:13px;'
-        f'background:#fff"><thead><tr style="background:#f1f5f9">{head}</tr></thead>'
-        f'<tbody>{body_rows}<tr style="background:#f8fafc">{totals_cells}</tr></tbody>'
-        f'</table>'
-        f'<p style="margin:18px 0 6px;color:#475569">Total deductions: '
-        f'<strong>KES {totals["deductions"]:,.2f}</strong> '
-        f'(PAYE + NSSF + NHIF + HELB + other)</p>'
-        f'<p style="margin:24px 0">'
-        f'<a href="{approve_url}" style="background:#16a34a;color:#fff;'
-        f'text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;'
-        f'display:inline-block">Review, Sign &amp; Approve</a></p>'
-        f'<p style="color:#64748b;font-size:12px">Opening the link shows this '
-        f'breakdown and a signature pad — draw your signature and approve to '
-        f'enable disbursement.</p>'
-        f'<p style="color:#94a3b8;font-size:12px;margin-top:18px">Sheer Logic HR</p>'
-        f'</div>')
+    """Plain-text payroll approval email with a per-employee deduction
+    breakdown. EmailJS escapes {{message}} and renders newlines as line breaks,
+    so the body is plain text (no HTML). The link is the DocuSeal signing page
+    when DocuSeal is configured, otherwise the one-tap approval page."""
+    sep = '=' * 44
+    lines = [
+        f'Payroll {period} — {company_name}',
+        'This payroll is ready for your approval and e-signature.',
+        '',
+        f'EMPLOYEES ({count})',
+        sep,
+    ]
+    for it in items:
+        lines.append(f'{it["name"]} — {it["role"]}')
+        lines.append(f'    Gross:   {_money(it["gross"])}')
+        lines.append(f'    PAYE:    {_money(it["paye"])}')
+        lines.append(f'    NSSF:    {_money(it["nssf"])}')
+        lines.append(f'    NHIF:    {_money(it["nhif"])}')
+        lines.append(f'    HELB:    {_money(it["helb"])}')
+        lines.append(f'    Net pay: {_money(it["net"])}')
+        lines.append('')
+    lines += [
+        sep,
+        'TOTALS',
+        f'    Gross pay:        {_money(totals["gross"])}',
+        f'    PAYE:             {_money(totals["paye"])}',
+        f'    NSSF:             {_money(totals["nssf"])}',
+        f'    NHIF:             {_money(totals["nhif"])}',
+        f'    HELB:             {_money(totals["helb"])}',
+        f'    Total deductions: {_money(totals["deductions"])}',
+        f'    Net pay:          {_money(totals["net"])}',
+        '',
+        f'Approvals required: {required}',
+        '',
+        'Review the payroll and add your e-signature here:',
+        approve_url,
+        '',
+        'Sheer Logic HR',
+    ]
+    return '\n'.join(lines)
 
 
 def _open_docuseal_submission(run, doc, approvers) -> dict:
     """Create DocuSeal template+submission; returns {email: signing_url}."""
     from apps.core.services import docuseal
+    from apps.payroll.services import documents as docsvc
     try:
-        with doc.file.open('rb') as fh:
-            pdf_bytes = fh.read()
+        # DocuSeal rejects password-protected PDFs ("422 File is password
+        # protected"), so send a freshly rendered UNprotected copy of the
+        # payslip for signing. The protected copy stays stored for distribution.
+        records = list(run.records.select_related('employee').filter(is_deleted=False))
+        company = Company.objects.filter(id=run.company_id).first()
+        pdf_bytes = docsvc.generate_payroll_pdf(
+            run, records, company_name=(company.name if company else ''),
+            triggered_by=str(run.run_by))
         template = docuseal.create_template_from_pdf(
             f'Payroll {run.period_display} ({run.id})', pdf_bytes)
+        # send_email=False: our own plain-text email carries the DocuSeal
+        # signing link, so DocuSeal shouldn't also email the signer.
         submission = docuseal.create_submission(
             template['id'],
             [{'name': a.name, 'email': a.email, 'phone': a.phone}
              for a in approvers],
+            send_email=False,
             metadata={'payroll_run_id': str(run.id)})
         doc.docuseal_template_id = str(template['id'])
         doc.docuseal_submission_id = str(submission['id'])

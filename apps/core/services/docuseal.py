@@ -115,7 +115,14 @@ def create_submission(template_id, approvers: list[dict], *, send_email=True,
     )
     if not resp.ok:
         raise DocuSealError(f'Submission create failed: {resp.status_code} {resp.text[:300]}')
-    return resp.json()
+    payload = resp.json()
+    # DocuSeal's POST /submissions returns a LIST of submitter objects (each with
+    # submission_id, slug, embed_src). Normalize to the {id, submitters} shape the
+    # rest of the code (and the demo branch) expects.
+    if isinstance(payload, list):
+        submission_id = payload[0].get('submission_id') if payload else None
+        return {'id': submission_id, 'submitters': payload}
+    return payload
 
 
 def get_signed_document(submission_id) -> bytes | None:

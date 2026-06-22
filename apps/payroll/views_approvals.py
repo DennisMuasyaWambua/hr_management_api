@@ -228,8 +228,17 @@ class DocuSealWebhook(APIView):
             return Response({'error': 'cannot resolve payroll run'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        approver = PayrollApprover.objects.filter(email__iexact=email,
-                                                  is_active=True).first()
+        # The same email can be an approver on several companies, so scope the
+        # lookup to THIS run's company; otherwise record_approval rejects the
+        # mismatched user_id ("not a configured approver for this company").
+        run = PayrollRun.objects.filter(id=run_id).first()
+        approver_qs = PayrollApprover.objects.filter(email__iexact=email,
+                                                     is_active=True)
+        if run is not None:
+            scoped = approver_qs.filter(config__company_id=run.company_id)
+            approver = scoped.first() or approver_qs.first()
+        else:
+            approver = approver_qs.first()
         if approver is None:
             return Response({'error': f'no approver with email {email}'},
                             status=status.HTTP_400_BAD_REQUEST)
