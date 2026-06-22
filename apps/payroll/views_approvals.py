@@ -286,60 +286,95 @@ class DocuSealWebhook(APIView):
 
 class ShareView(APIView):
     """
-    Share button backend (01-Jun session): auto-generate the artifact and email
-    it pre-templated — no manual download/upload.
-    Body: {module: 'payroll', object_id, format: 'pdf'|'excel',
-           recipients: ['a@b.com', ...], message?, document_title?}
+    Share button backend: auto-generate the payroll artifact and deliver via
+    email (file attached), WhatsApp, or SMS.
+
+    Body: {module, object_id, format, recipients?, phone_recipients?,
+           channels?, message?, document_title?}
+    channels defaults to ['email'] when recipients present and
+    ['whatsapp'] when only phone_recipients present.
     """
     permission_classes = [PayrollHROnly]
 
     @extend_schema(
-        summary='Share a document by email (auto-generate + attach)',
+        summary='Share a document via email / WhatsApp / SMS',
         request=ShareRequestSerializer,
         responses={200: OpenApiResponse(
-            description='{"sent": [{"recipient", "status"}]}')},
+            description='{"sent": [{"recipient", "channel", "status"}]}')},
     )
     def post(self, request):
-        module = request.data.get('module', 'payroll')
-        recipients = request.data.get('recipients', [])
-        if not recipients:
-            return Response({'error': 'recipients required'},
-                            status=status.HTTP_400_BAD_REQUEST)
+        ser = ShareRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        d = ser.validated_data
 
+        module = d['module']
         if module == 'payroll':
-            attachment = self._payroll_attachment(request)
+            attachment = self._payroll_attachment(request, d)
             if isinstance(attachment, Response):
                 return attachment
         else:
-            return Response({'error': f'module {module} not yet shareable; '
-                                      'payroll only for now'},
+            return Response({'error': f'module {module} not yet shareable'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         filename, content, mimetype, company_id = attachment
-        title = request.data.get('document_title', filename)
         from .models import Company
         company = Company.objects.filter(id=company_id).first()
+        company_name = company.name if company else 'Sheer Logic HR'
+        title = d.get('document_title') or filename
+        message = d.get('message') or 'Please find the attached document.'
+
+        # Resolve which channels to use per recipient type.
+        explicit_channels = d.get('channels') or []
+        email_channels = explicit_channels or (['email'] if d.get('recipients') else [])
+        phone_channels = explicit_channels or (['whatsapp'] if d.get('phone_recipients') else [])
+
         sent = []
-        for email in recipients:
-            log = notif.send_email(
-                email,
-                f'{title} from {company.name if company else "Sheer Logic HR"}',
-                request.data.get('message',
-                                 'Please find the attached document.'),
-                attachments=[(filename, content, mimetype)],
-                event='share.document', company_id=company_id,
-                source_app='dashboard', related=('share', filename))
-            sent.append({'recipient': email, 'status': log.status})
-        ServiceAuditLog.log('share.sent', request=request,
-                            object_type=module, company_id=company_id,
-                            object_id=str(request.data.get('object_id', '')),
-                            metadata={'recipients': recipients, 'file': filename})
+
+        # --- Email: attach the file ---
+        if 'email' in email_channels:
+            for addr in d.get('recipients', []):
+                log = notif.send_email(
+                    addr,
+                    f'{title} from {company_name}',
+                    message,
+                    attachments=[(filename, content, mimetype)],
+                    event='share.document', company_id=company_id,
+                    source_app='dashboard', related=('share', filename))
+                sent.append({'recipient': addr, 'channel': 'email',
+                             'status': log.status})
+
+        # --- WhatsApp / SMS: text-only (no file attachment over these channels) ---
+        sms_body = (
+            f'{company_name} shared "{title}" with you.\n'
+            f'{message}\n'
+            f'Log in to Sheer Logic HR to download your document.'
+        )
+        for phone in d.get('phone_recipients', []):
+            for channel in [c for c in phone_channels if c in ('whatsapp', 'sms')]:
+                sender = notif.send_whatsapp if channel == 'whatsapp' else notif.send_sms
+                log = sender(
+                    phone, sms_body,
+                    event='share.document', company_id=company_id,
+                    source_app='dashboard', related=('share', filename))
+                sent.append({'recipient': phone, 'channel': channel,
+                             'status': log.status})
+
+        ServiceAuditLog.log(
+            'share.sent', request=request,
+            object_type=module, company_id=company_id,
+            object_id=str(d.get('object_id', '')),
+            metadata={
+                'email_recipients': d.get('recipients', []),
+                'phone_recipients': d.get('phone_recipients', []),
+                'channels': list({s['channel'] for s in sent}),
+                'file': filename,
+            })
         return Response({'sent': sent})
 
-    def _payroll_attachment(self, request):
-        fmt = request.data.get('format', 'pdf')
+    def _payroll_attachment(self, request, data):
+        fmt = data.get('format', 'pdf')
         try:
-            run = PayrollRun.objects.get(id=request.data.get('object_id'))
+            run = PayrollRun.objects.get(id=data['object_id'])
         except PayrollRun.DoesNotExist:
             return Response({'error': 'Payroll run not found'},
                             status=status.HTTP_404_NOT_FOUND)
@@ -354,6 +389,6 @@ class ShareView(APIView):
         with doc.file.open('rb') as fh:
             content = fh.read()
         filename = doc.file.name.rsplit('/', 1)[-1]
-        mimetype = 'application/pdf' if fmt == 'pdf' else \
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        mimetype = ('application/pdf' if fmt == 'pdf'
+                    else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         return filename, content, mimetype, run.company_id

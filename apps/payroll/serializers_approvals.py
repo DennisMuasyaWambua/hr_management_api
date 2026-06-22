@@ -44,13 +44,31 @@ class PayrollApprovalSerializer(serializers.ModelSerializer):
 
 
 class ShareRequestSerializer(serializers.Serializer):
-    """Body for the share-to-email endpoint."""
+    """Body for the multi-channel share endpoint."""
     module = serializers.ChoiceField(choices=['payroll'], default='payroll')
     object_id = serializers.UUIDField(help_text='Payroll run id')
     format = serializers.ChoiceField(choices=['pdf', 'excel'], default='pdf')
-    recipients = serializers.ListField(child=serializers.EmailField())
+    # Email channel
+    recipients = serializers.ListField(
+        child=serializers.EmailField(), required=False, default=list,
+        help_text='Email addresses — file attached')
+    # WhatsApp / SMS channels
+    phone_recipients = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list,
+        help_text='Phone numbers in E.164 format (e.g. +254712345678)')
+    channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=['email', 'whatsapp', 'sms']),
+        required=False, default=list,
+        help_text='Channels to use. Defaults to email when recipients present, '
+                  'whatsapp when phone_recipients present.')
     message = serializers.CharField(required=False, allow_blank=True)
     document_title = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, data):
+        if not data.get('recipients') and not data.get('phone_recipients'):
+            raise serializers.ValidationError(
+                'Provide at least one of recipients (email) or phone_recipients.')
+        return data
 
 
 class PayrollDocumentSerializer(serializers.ModelSerializer):

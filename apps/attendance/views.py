@@ -75,6 +75,7 @@ class CheckInView(APIView):
                 'event_type': drf_serializers.CharField(),
                 'face_verified': drf_serializers.BooleanField(allow_null=True),
                 'reason_required': drf_serializers.BooleanField(),
+                'violation_id': drf_serializers.UUIDField(allow_null=True),
             }),
             403: OpenApiResponse(description='Face not recognized'),
             502: OpenApiResponse(description='Smile ID unreachable'),
@@ -116,17 +117,19 @@ class CheckInView(APIView):
         )
 
         reason_required = False
+        violation_id = None
         if in_zone is False and self._in_work_hours(zone):
             reason_required = not d.get('out_of_zone_reason')
             violation = GeofenceViolation.objects.filter(
                 employee_id=d['employee_id'], ended_at__isnull=True).first()
             if violation is None:
-                GeofenceViolation.objects.create(
+                violation = GeofenceViolation.objects.create(
                     company_id=d['company_id'], employee_id=d['employee_id'],
                     tenant_id=d.get('tenant_id'), zone=zone,
                     started_at=timezone.now(), distance_m=distance,
                     reason=d.get('out_of_zone_reason', ''),
                     status='reason_submitted' if d.get('out_of_zone_reason') else 'open')
+            violation_id = str(violation.id)
         elif in_zone:
             GeofenceViolation.objects.filter(
                 employee_id=d['employee_id'], ended_at__isnull=True,
@@ -137,6 +140,7 @@ class CheckInView(APIView):
             'ok': True, 'event_id': event.id, 'event_type': event.event_type,
             'face_verified': face_result['verified'],
             'reason_required': reason_required,
+            'violation_id': violation_id,
         }, status=status.HTTP_201_CREATED)
 
     @staticmethod
