@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'apps.hr',
     'apps.attendance',
     'apps.recruitment',
+    'storages',
 ]
 
 MIDDLEWARE = [
@@ -276,9 +277,39 @@ GROQ_MODEL = config('GROQ_MODEL', default='llama3-70b-8192')
 # endpoints. Keep False until the dashboard forwards X-User-Role everywhere.
 RBAC_STRICT = config('RBAC_STRICT', default=False, cast=bool)
 
-# Generated documents (payroll PDFs/Excel)
-MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
-MEDIA_URL = '/media/'
+# File storage — Supabase Storage (S3-compatible) when credentials are present.
+# On Railway the filesystem is ephemeral, so payroll PDFs/Excel vanish on
+# redeploy without object storage. Supabase is already in the project, so we
+# reuse it. Generate S3 keys at: Supabase → Project Settings → Storage → S3 Access Keys.
+_SUPABASE_URL = config('NEXT_PUBLIC_SUPABASE_URL', default='')
+_SUPABASE_S3_KEY = config('SUPABASE_S3_ACCESS_KEY_ID', default='')
+_SUPABASE_PROJECT_REF = _SUPABASE_URL.rstrip('/').split('//')[- 1].split('.')[0] if _SUPABASE_URL else ''
+
+if _SUPABASE_S3_KEY and _SUPABASE_PROJECT_REF:
+    _SUPABASE_S3_ENDPOINT = f'https://{_SUPABASE_PROJECT_REF}.supabase.co/storage/v1/s3'
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+            'OPTIONS': {
+                'endpoint_url': _SUPABASE_S3_ENDPOINT,
+                'access_key': _SUPABASE_S3_KEY,
+                'secret_key': config('SUPABASE_S3_SECRET_ACCESS_KEY', default=''),
+                'bucket_name': config('SUPABASE_STORAGE_BUCKET', default='hr-media'),
+                'region_name': 'ap-southeast-1',
+                'default_acl': 'public-read',
+                'file_overwrite': False,
+                'object_parameters': {'CacheControl': 'max-age=86400'},
+            },
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
+    MEDIA_URL = f'{_SUPABASE_S3_ENDPOINT}/{config("SUPABASE_STORAGE_BUCKET", default="hr-media")}/'
+else:
+    # Fallback: local filesystem (dev / Railway Volume if MEDIA_ROOT is set)
+    MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
+    MEDIA_URL = '/media/'
 
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
