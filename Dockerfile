@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Fallback local media dir — only used when T3_ACCESS_KEY_ID is not set (dev mode)
+# Media files (payroll PDFs, Excel exports) — mount a volume at /app/media in production
 RUN mkdir -p /app/media
 
 EXPOSE 8000

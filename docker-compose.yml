@@ -50,6 +50,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     ports:
       - "${PORT:-8000}:8000"
+    volumes:
+      - media_data:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -98,3 +100,4 @@ services:
 volumes:
   pg_data:
   redis_data:
+  media_data:
