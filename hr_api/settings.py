@@ -256,6 +256,17 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL',
                             default='Sheer Logic HR <hr@sheerlogic.example>')
 
+# EmailJS REST API — Railway blocks outbound SMTP ports, so when these are set
+# all transactional email (payroll approvals, background checks, OTP, leave,
+# etc.) is sent through EmailJS instead of Django SMTP. The PRIVATE key is
+# required for server-side sends (EmailJS blocks non-browser calls otherwise).
+# See apps/core/services/notifications.send_email.
+EMAILJS_SERVICE_ID = config('EMAILJS_SERVICE_ID', default='')
+EMAILJS_TEMPLATE_ID = config('EMAILJS_TEMPLATE_ID', default='')
+EMAILJS_PUBLIC_KEY = config('EMAILJS_PUBLIC_KEY', default='')
+EMAILJS_PRIVATE_KEY = config('EMAILJS_PRIVATE_KEY', default='')
+EMAILJS_FROM_NAME = config('EMAILJS_FROM_NAME', default='Sheer Logic')
+
 # Africa's Talking WhatsApp (Chat API); falls back to SMS when unset
 AT_WHATSAPP_NUMBER = config('AT_WHATSAPP_NUMBER', default='')
 

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 AT_SMS_URL_LIVE = 'https://api.africastalking.com/version1/messaging'
 AT_SMS_URL_SANDBOX = 'https://api.sandbox.africastalking.com/version1/messaging'
 AT_WHATSAPP_URL = 'https://chat.africastalking.com/whatsapp/message/send'
+EMAILJS_API_URL = 'https://api.emailjs.com/api/v1.0/email/send'
 
 # Built-in fallback templates used when no NotificationTemplate row matches.
 DEFAULT_TEMPLATES = {
@@ -130,8 +131,16 @@ def _mark(log, *, status, provider_message_id='', error=''):
 # ---------------------------------------------------------------------------
 
 def send_email(recipient, subject, body, *, attachments=None, log=None, **log_kwargs):
-    """attachments: list of (filename, content_bytes, mimetype)."""
+    """attachments: list of (filename, content_bytes, mimetype).
+
+    Routes through the EmailJS REST API when EMAILJS_SERVICE_ID + public key are
+    configured (Railway blocks outbound SMTP); otherwise uses Django SMTP.
+    """
     log = log or _log('email', recipient, subject, body, **log_kwargs)
+    if getattr(settings, 'EMAILJS_SERVICE_ID', '') and \
+            getattr(settings, 'EMAILJS_PUBLIC_KEY', ''):
+        return _send_email_emailjs(recipient, subject, body, log,
+                                   attachments=attachments)
     try:
         msg = EmailMessage(
             subject=subject, body=body,
@@ -144,6 +153,49 @@ def send_email(recipient, subject, body, *, attachments=None, log=None, **log_kw
         return _mark(log, status='sent')
     except Exception as exc:  # noqa: BLE001 - log + surface via status
         logger.exception('Email send failed to %s', recipient)
+        return _mark(log, status='failed', error=str(exc))
+
+
+def _send_email_emailjs(recipient, subject, body, log, *, attachments=None):
+    """
+    Send one email via EmailJS's REST API. The configured EmailJS template must
+    expose these variables: {{to_email}}, {{subject}}, {{message}}, {{from_name}}
+    (set the template's "To email" field to {{to_email}}).
+
+    EmailJS's send endpoint does not accept dynamic binary attachments, so any
+    attachments are skipped — the message body still carries the link/reference
+    used by the approval and background-check flows.
+    """
+    if attachments:
+        logger.warning('EmailJS cannot send %d attachment(s) to %s; sending the '
+                       'body only (links are still included).',
+                       len(attachments), recipient)
+    payload = {
+        'service_id': settings.EMAILJS_SERVICE_ID,
+        'template_id': getattr(settings, 'EMAILJS_TEMPLATE_ID', ''),
+        'user_id': settings.EMAILJS_PUBLIC_KEY,
+        'template_params': {
+            'to_email': recipient,
+            'subject': subject or '',
+            'message': body or '',
+            'from_name': getattr(settings, 'EMAILJS_FROM_NAME', 'Sheer Logic'),
+        },
+    }
+    # Private key (access token) authenticates server-side / non-browser calls,
+    # which EmailJS blocks by default.
+    private_key = getattr(settings, 'EMAILJS_PRIVATE_KEY', '')
+    if private_key:
+        payload['accessToken'] = private_key
+    try:
+        resp = requests.post(EMAILJS_API_URL, json=payload,
+                             headers={'Content-Type': 'application/json'},
+                             timeout=30)
+        if resp.ok:
+            return _mark(log, status='sent')
+        return _mark(log, status='failed',
+                     error=f'EmailJS HTTP {resp.status_code}: {resp.text[:500]}')
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('EmailJS send failed to %s', recipient)
         return _mark(log, status='failed', error=str(exc))
 
 
