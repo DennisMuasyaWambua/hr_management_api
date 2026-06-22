@@ -175,6 +175,42 @@ class EmployeeDeductionViewSet(MonthlyLineItemMixin, CompanyScopedViewSet):
     serializer_class = EmployeeDeductionSerializer
     rbac_module = 'allowances'
 
+    @action(detail=False, methods=['post'])
+    def assign_department(self, request):
+        """Apply a deduction to every active employee in a department (or the
+        whole company when no department is given). Defaults to one month."""
+        from apps.payroll.models import EmployeeProfile
+        d = request.data
+        company_id = request_company_id(request)
+        try:
+            deduction_type_id = d['deduction_type']
+            amount = d['amount']
+        except KeyError as exc:
+            return Response({'error': f'missing {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+        eff_from = d.get('effective_from') or str(timezone.localdate())
+        eff_from_date = _datetime.date.fromisoformat(eff_from)
+        eff_to = d.get('effective_to') or str(_end_of_month(eff_from_date))
+        emps = EmployeeProfile.objects.filter(
+            company_id=company_id, employment_status='active', is_deleted=False)
+        if d.get('department'):
+            emps = emps.filter(department=d['department'])
+        created = []
+        for emp in emps:
+            obj = EmployeeDeduction.objects.create(
+                tenant_id=emp.tenant_id, company_id=company_id,
+                employee_id=emp.id, deduction_type_id=deduction_type_id,
+                amount=amount, effective_from=eff_from_date, effective_to=eff_to,
+                is_active=True, created_by=request_user_id(request))
+            created.append(str(obj.id))
+        ServiceAuditLog.log(
+            'allowances.deduction_assigned_department', request=request,
+            object_type='EmployeeDeduction', object_id='',
+            company_id=company_id,
+            metadata={'department': d.get('department') or 'ALL', 'count': len(created)})
+        return Response({'created': len(created), 'department': d.get('department') or 'ALL',
+                         'effective_from': eff_from, 'effective_to': eff_to},
+                        status=status.HTTP_201_CREATED)
+
 
 # --- Overtime ----------------------------------------------------------------
 
