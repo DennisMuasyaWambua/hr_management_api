@@ -66,10 +66,11 @@ WSGI_APPLICATION = 'hr_api.wsgi.application'
 # Override by setting DATABASE_URL in the environment.
 import dj_database_url as _dj_db_url
 
-_DATABASE_URL = config(
-    'DATABASE_URL',
-    default='postgresql://postgres:nsxUftcRRqCKhFutpdCNXnFhYWROCHXV@thomas.proxy.rlwy.net:14645/railway',
-)
+_DATABASE_URL = config('DATABASE_URL', default='')
+if not _DATABASE_URL:
+    raise RuntimeError(
+        'DATABASE_URL is not set. Copy .env.example to .env and fill in your database URL.'
+    )
 
 DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
 
@@ -142,7 +143,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Service key for dashboard API calls (set in environment)
-HR_SERVICE_KEY = config('HR_SERVICE_KEY', default='hr-dashboard-service-key-2024')
+HR_SERVICE_KEY = config('HR_SERVICE_KEY', default='dev-service-key-change-in-production')
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
