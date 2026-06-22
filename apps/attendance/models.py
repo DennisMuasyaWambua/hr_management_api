@@ -16,8 +16,23 @@ from django.db import models
 from django.utils import timezone
 
 
+def _point_in_polygon(lat: float, lng: float, points: list) -> bool:
+    """Ray-casting test. points is [{lat, lng}, ...]."""
+    n = len(points)
+    inside = False
+    x, y = lng, lat
+    j = n - 1
+    for i in range(n):
+        xi, yi = points[i]['lng'], points[i]['lat']
+        xj, yj = points[j]['lng'], points[j]['lat']
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
 class WorkZone(models.Model):
-    """Geofenced work area: circle (center + radius). HQ-dashboard managed."""
+    """Geofenced work area: polygon (preferred) or circle fallback."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -27,6 +42,8 @@ class WorkZone(models.Model):
     center_lat = models.FloatField()
     center_lng = models.FloatField()
     radius_m = models.PositiveIntegerField(default=200)
+    # polygon_points: list of {lat, lng} dicts. When present, overrides circle.
+    polygon_points = models.JSONField(null=True, blank=True)
     work_start = models.TimeField(default='08:00')
     work_end = models.TimeField(default='17:00')
     is_active = models.BooleanField(default=True)
@@ -35,9 +52,11 @@ class WorkZone(models.Model):
         db_table = 'work_zones'
 
     def __str__(self):
-        return f'{self.name} ({self.radius_m}m)'
+        return f'{self.name} ({"polygon" if self.polygon_points else f"{self.radius_m}m"})'
 
     def contains(self, lat: float, lng: float) -> bool:
+        if self.polygon_points and len(self.polygon_points) >= 3:
+            return _point_in_polygon(lat, lng, self.polygon_points)
         return haversine_m(self.center_lat, self.center_lng, lat, lng) <= self.radius_m
 
 
