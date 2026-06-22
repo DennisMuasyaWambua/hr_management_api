@@ -130,13 +130,21 @@ class CompanyViewSet(viewsets.ModelViewSet):
     ordering = ['name']
 
     def get_queryset(self):
+        from apps.core.permissions import CROSS_COMPANY_ROLES, request_role
         qs = Company.objects.filter(is_deleted=False, is_active=True)
-        company_id = (
+        # Explicit filter always wins (company switcher, direct lookup).
+        explicit = (
             self.request.query_params.get('companyId') or
             self.request.query_params.get('company_id')
         )
-        if company_id:
-            qs = qs.filter(id=company_id)
+        if explicit:
+            return qs.filter(id=explicit)
+        # Non-cross-company roles (hr, manager, employee) see only their company.
+        role = request_role(self.request)
+        if role and role not in CROSS_COMPANY_ROLES:
+            session_company = request_company_id(self.request)
+            if session_company:
+                return qs.filter(id=session_company)
         return qs
 
     def perform_create(self, serializer):
