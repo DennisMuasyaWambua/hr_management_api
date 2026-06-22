@@ -362,15 +362,15 @@ class OneTapApprovalView(APIView):
     <h2>&#128196; Payroll Approval</h2>
     <p style="color:#64748b;font-size:14px">You have been asked to review, sign and approve this payroll.</p>
     {detail_html}
-    <div class="info">
-      <p><strong>Action:</strong> {action_label}</p>
-      <p><strong>Expires:</strong> {expires}</p>
-    </div>
     {sig_html}
     <p style="font-size:13px;color:#64748b">
       Approving records your signature. Disbursement is enabled once the required number of approvers have signed.
     </p>
     <button id="btn" onclick="doApprove()">{btn_label}</button>
+    <div class="info" style="margin-top:18px">
+      <p><strong>Action:</strong> {action_label}</p>
+      <p><strong>Expires:</strong> {expires}</p>
+    </div>
     <div class="msg success" id="ok">&#10003; Approved! Disbursement has been enabled.</div>
     <div class="msg error" id="err"></div>
   </div>

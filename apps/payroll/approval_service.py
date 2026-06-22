@@ -52,12 +52,14 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
                                   company_id=run.company_id, tenant_id=run.tenant_id)
         from django.conf import settings
         base = getattr(settings, 'PUBLIC_API_BASE_URL', 'http://localhost:8000')
-        # Demo DocuSeal submissions return a stub 'docuseal.demo' URL that
-        # doesn't exist; fall back to the always-functional one-tap link.
-        signing_url = docuseal_links.get(approver.email, '')
-        approve_url = (signing_url
-                       if signing_url and 'docuseal.demo' not in signing_url
-                       else f'{base}/api/one-tap/{token.token}/')
+        # The email's sign button opens our signature-pad page: it shows the
+        # employee names and a draw-to-sign pad right below. (A DocuSeal
+        # submission is still created above for the audit trail / optional
+        # DocuSeal signing; its link is offered as a secondary option.)
+        approve_url = f'{base}/api/one-tap/{token.token}/'
+        docuseal_url = docuseal_links.get(approver.email, '')
+        if docuseal_url and 'docuseal.demo' in docuseal_url:
+            docuseal_url = ''
         # Plain-text email with a per-employee deduction breakdown (EmailJS
         # escapes {{message}}, so HTML would show as raw tags).
         subject = (f'Payroll {run.period_display} — {company_name}: '
@@ -65,7 +67,7 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
                    f'{"s" if count != 1 else ""})')
         body = _approval_email_text(company_name, run.period_display, items,
                                     count, totals, config.required_approvals,
-                                    approve_url)
+                                    approve_url, docuseal_url)
         if approver.email:
             notif.send_email(approver.email, subject, body,
                              event='payroll.pending_approval',
@@ -152,11 +154,12 @@ def _money(v) -> str:
 
 
 def _approval_email_text(company_name, period, items, count, totals,
-                         required, approve_url) -> str:
+                         required, approve_url, docuseal_url='') -> str:
     """Plain-text payroll approval email with a per-employee deduction
     breakdown. EmailJS escapes {{message}} and renders newlines as line breaks,
-    so the body is plain text (no HTML). The link is the DocuSeal signing page
-    when DocuSeal is configured, otherwise the one-tap approval page."""
+    so the body is plain text (no HTML). `approve_url` opens our signature-pad
+    page (employee names + draw-to-sign pad); `docuseal_url` is an optional
+    DocuSeal signing link offered as a secondary option."""
     sep = '=' * 44
     lines = [
         f'Payroll {period} — {company_name}',
@@ -187,11 +190,12 @@ def _approval_email_text(company_name, period, items, count, totals,
         '',
         f'Approvals required: {required}',
         '',
-        'Review the payroll and add your e-signature here:',
+        'Review the payroll and add your signature here:',
         approve_url,
-        '',
-        'Sheer Logic HR',
     ]
+    if docuseal_url:
+        lines += ['', 'Or sign the PDF in DocuSeal:', docuseal_url]
+    lines += ['', 'Sheer Logic HR']
     return '\n'.join(lines)
 
 
