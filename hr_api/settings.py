@@ -63,13 +63,23 @@ TEMPLATES = [
 WSGI_APPLICATION = 'hr_api.wsgi.application'
 
 # Database — always PostgreSQL via DATABASE_URL.
-# Override by setting DATABASE_URL in the environment.
+# Railway auto-injects DATABASE_URL / DATABASE_PRIVATE_URL when a Postgres service
+# is linked; DATABASE_PUBLIC_URL is the external proxy. Fall back through all three
+# so the app starts regardless of how the Railway project is wired.
 import dj_database_url as _dj_db_url
+import os as _os
 
-_DATABASE_URL = config('DATABASE_URL', default='')
+_DATABASE_URL = (
+    config('DATABASE_URL', default='')
+    or _os.environ.get('DATABASE_PRIVATE_URL', '')
+    or _os.environ.get('DATABASE_PUBLIC_URL', '')
+)
 if not _DATABASE_URL:
     raise RuntimeError(
-        'DATABASE_URL is not set. Copy .env.example to .env and fill in your database URL.'
+        'DATABASE_URL is not set. '
+        'On Railway: link the Postgres service so DATABASE_URL is injected, '
+        'or set it manually in the service Variables tab. '
+        'Locally: copy .env.example to .env and fill in your database URL.'
     )
 
 DATABASES = {'default': _dj_db_url.parse(_DATABASE_URL, conn_max_age=600)}
@@ -143,7 +153,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Service key for dashboard API calls (set in environment)
-HR_SERVICE_KEY = config('HR_SERVICE_KEY', default='dev-service-key-change-in-production')
+HR_SERVICE_KEY = config('HR_SERVICE_KEY', default='hr-dashboard-service-key-2024')
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
