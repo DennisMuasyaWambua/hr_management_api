@@ -65,16 +65,26 @@ class AuthLoginView(views.APIView):
         if not email or not password:
             return Response({'error': 'email and password are required'}, status=400)
 
-        # Look up user by email (username == email for our users)
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            try:
-                user = User.objects.get(username=email)
-            except User.DoesNotExist:
-                return Response({'error': 'Invalid credentials'}, status=401)
+        # Look up the user by email or username. Legacy seeding (the
+        # create_admin release command vs. dashboard-created users) can leave
+        # more than one auth.User sharing an email, so never use .get() here —
+        # it would raise MultipleObjectsReturned and 500 the login. Gather all
+        # candidates and pick the one whose password matches, preferring one
+        # that has a linked AppUser profile (hr_profile).
+        candidates = list(User.objects.filter(email=email))
+        if not candidates:
+            candidates = list(User.objects.filter(username=email))
+        if not candidates:
+            return Response({'error': 'Invalid credentials'}, status=401)
 
-        if not user.check_password(password):
+        user = None
+        for candidate in candidates:
+            if candidate.check_password(password):
+                user = candidate
+                # A candidate with a profile is the best match; stop searching.
+                if getattr(candidate, 'hr_profile', None) is not None:
+                    break
+        if user is None:
             return Response({'error': 'Invalid credentials'}, status=401)
 
         if not user.is_active:
