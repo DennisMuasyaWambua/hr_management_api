@@ -336,12 +336,22 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Get active employees
+        # Get active employees — scoped to the selected employee_ids when the
+        # caller provides them, so a run (and its approval email) covers only
+        # the chosen employees rather than the whole company.
         employees = EmployeeProfile.objects.filter(
             company_id=payroll_run.company_id,
             employment_status='active',
             is_deleted=False
         )
+        selected_ids = request.data.get('employee_ids') or []
+        if selected_ids:
+            employees = employees.filter(id__in=selected_ids)
+            if not employees.exists():
+                return Response(
+                    {'error': 'None of the selected employees are active in this company'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         calculator = KenyanTaxCalculator()
 
