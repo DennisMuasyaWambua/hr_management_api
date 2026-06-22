@@ -716,6 +716,41 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
                 for row in cursor.fetchall():
                     names_by_user[str(row[0])] = row[1]
 
+        # Per-employee statutory breakdown for the current month, so the payroll
+        # table can show Gross / PAYE / NSSF / NHIF / HELB / Net per employee
+        # (mirrors the run calculate()). Includes active allowances/deductions.
+        import datetime as _dt
+        from decimal import Decimal as _D
+
+        from apps.hr.models import EmployeeAllowance, EmployeeDeduction
+        _calc = KenyanTaxCalculator()
+        _today = _dt.date.today()
+        _first = _today.replace(day=1)
+        _eids = [e.id for e in employees]
+        _allow_by_emp, _ded_by_emp = {}, {}
+        for _a in EmployeeAllowance.objects.filter(
+                employee_id__in=_eids, is_active=True).select_related('allowance_type'):
+            if _a.active_for(_today.year, _today.month):
+                _allow_by_emp.setdefault(str(_a.employee_id), []).append(_a)
+        for _d in EmployeeDeduction.objects.filter(employee_id__in=_eids, is_active=True):
+            if (_d.effective_from <= _first.replace(day=28) and
+                    (_d.effective_to is None or _d.effective_to >= _first)):
+                _ded_by_emp.setdefault(str(_d.employee_id), []).append(_d)
+
+        def _breakdown(emp):
+            allows = _allow_by_emp.get(str(emp.id), [])
+            taxable_allow = sum((a.amount for a in allows if a.allowance_type.taxable), _D('0'))
+            nontax_allow = sum((a.amount for a in allows if not a.allowance_type.taxable), _D('0'))
+            extra_ded = sum((d.amount for d in _ded_by_emp.get(str(emp.id), [])), _D('0'))
+            base = emp.salary or _D('0')
+            c = _calc.calculate_all(gross_pay=base + taxable_allow, helb_deduction=_D('0'))
+            paye, nssf, nhif, helb = c['paye'], c['nssf_employee'], c['nhif'], c['helb']
+            gross = base + taxable_allow + nontax_allow
+            total = paye + nssf + nhif + helb + extra_ded
+            return {'gross_salary': gross, 'paye': paye, 'nssf': nssf, 'nhif': nhif,
+                    'helb': helb, 'other_deductions': extra_ded,
+                    'total_deductions': total, 'net_salary': gross - total}
+
         # Build response data
         employee_data = []
         department_stats = {}
@@ -743,6 +778,7 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
                 'payment_status': payment_status,
                 'payment_method': emp.payment_method,
                 'last_paid_at': emp.last_paid_at,
+                **_breakdown(emp),
             })
 
             # Aggregate department stats
