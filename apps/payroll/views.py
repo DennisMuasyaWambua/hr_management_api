@@ -638,13 +638,14 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
 
     def get_queryset(self):
         qs = EmployeeProfile.objects.filter(is_deleted=False, employment_status='active')
-        company_id = request_company_id(self.request)
-        if company_id:
-            qs = qs.filter(company_id=company_id)
-        # Deployed HR/Managers only see their assigned employees.
+        # Company scoping is handled entirely by scope_employee_queryset, which
+        # is role-aware: single-company roles get their home company (header),
+        # cross-company admins get the switcher's selected company, and deployed
+        # roles get their assigned employees. Pre-filtering by the home-company
+        # header here would pin admins to their home company and make a
+        # different company selection return nothing.
         from apps.core.permissions import scope_employee_queryset
-        qs = scope_employee_queryset(qs, self.request)
-        return qs
+        return scope_employee_queryset(qs, self.request)
 
     @action(detail=False, methods=['get'])
     def with_payment_status(self, request):
