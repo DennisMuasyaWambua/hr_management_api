@@ -31,7 +31,7 @@ class GroqScoringError(Exception):
 
 
 def score_candidate(job_title: str, job_description: str, cv_text: str) -> dict:
-    api_key = settings.GROQ_API_KEY
+    api_key = getattr(settings, 'GROQ_API_KEY', '')
     if not api_key:
         raise GroqScoringError('GROQ_API_KEY not configured')
 

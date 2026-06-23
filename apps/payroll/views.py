@@ -150,6 +150,18 @@ class MeView(views.APIView):
     def get(self, request):
         user = request.user
         profile = getattr(user, 'hr_profile', None)
+
+        # face_descriptor lives on EmployeeProfile, keyed by the Supabase UUID
+        # forwarded in X-User-Id by the Next.js proxy.
+        face_descriptor = None
+        supabase_uid = request_user_id(request)
+        if supabase_uid:
+            ep = EmployeeProfile.objects.filter(
+                user_id=supabase_uid, is_deleted=False
+            ).values('face_descriptor').first()
+            if ep:
+                face_descriptor = ep['face_descriptor']
+
         return Response({
             'user_id': str(user.id),
             'email': user.email,
@@ -157,6 +169,7 @@ class MeView(views.APIView):
             'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
             'role': getattr(profile, 'role', 'super_admin'),
             'company_id': str(getattr(profile, 'company_id', '') or ''),
+            'face_descriptor': face_descriptor,
         })
 
 
@@ -1265,10 +1278,13 @@ class IntaSendConfigViewSet(viewsets.GenericViewSet):
 class ProfilePictureView(views.APIView):
     """
     POST /api/me/profile-picture/
-    Body: {"image_b64": "<base64-encoded image, no data: prefix>",
-           "user_id": "<uuid>"}
-    Saves the data URL to employee_profiles.profile_picture_url and
-    triggers SmileID Job Type 1 enrollment in the background.
+    Body: {
+      "image_b64": "<base64, no data: prefix>",
+      "user_id": "<uuid>",
+      "face_descriptor": [<128 floats>]   # optional — sent by face-api.js on the PWA
+    }
+    Saves the data URL and face descriptor. When face_descriptor is present
+    SmileID enrollment is skipped (face-api.js handles verification client-side).
     """
 
     def post(self, request):
@@ -1283,26 +1299,41 @@ class ProfilePictureView(views.APIView):
             image_b64 = image_b64.split(',', 1)[1]
 
         data_url = f'data:image/jpeg;base64,{image_b64}'
+        face_descriptor = request.data.get('face_descriptor')  # list of 128 floats or None
+
+        update_fields = {'profile_picture_url': data_url}
+        if face_descriptor is not None:
+            update_fields['face_descriptor'] = face_descriptor
 
         updated = EmployeeProfile.objects.filter(
             user_id=user_id, is_deleted=False,
-        ).update(profile_picture_url=data_url)
+        ).update(**update_fields)
 
         if not updated:
             return Response({'error': 'Employee profile not found'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        from apps.attendance.services import smileid
+        # Only call SmileID when no face_descriptor was provided (legacy path /
+        # when SMILEID_DEMO_MODE=False and SmileID credentials are configured).
         enrollment: dict = {}
-        try:
-            enrollment = smileid.enroll_face(str(user_id), image_b64)
-        except smileid.SmileIDError as exc:
-            logger.warning('SmileID enrollment failed for user %s: %s', user_id, exc)
-            enrollment = {'enrolled': False, 'error': str(exc)}
+        if face_descriptor is None:
+            from apps.attendance.services import smileid
+            try:
+                enrollment = smileid.enroll_face(str(user_id), image_b64)
+            except smileid.SmileIDError as exc:
+                logger.warning('SmileID enrollment failed for user %s: %s', user_id, exc)
+                enrollment = {'enrolled': False, 'error': str(exc)}
 
         ServiceAuditLog.log(
             'employee.profile_picture_updated', request=request,
             object_type='EmployeeProfile', object_id=str(user_id),
-            metadata={'smileid_enrolled': enrollment.get('enrolled', False)})
+            metadata={
+                'face_enrolled': face_descriptor is not None,
+                'smileid_enrolled': enrollment.get('enrolled', False),
+            })
 
-        return Response({'ok': True, 'smileid': enrollment})
+        return Response({
+            'ok': True,
+            'face_enrolled': face_descriptor is not None,
+            'smileid': enrollment,
+        })

@@ -138,6 +138,9 @@ class EmployeeProfile(models.Model):
 
     # Face ID reference — stored as a data URL; used for SmileID enrollment
     profile_picture_url = models.TextField(null=True, blank=True)
+    # face-api.js descriptor — 128-float array extracted client-side, used for
+    # selfie-to-selfie verification at check-in without a third-party service.
+    face_descriptor = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'employee_profiles'
