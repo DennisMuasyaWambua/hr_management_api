@@ -5,6 +5,7 @@ All models here are Django-managed (new tables). Mirror SQL for Supabase
 (with RLS) lives in sql/sheerlogic_extensions.sql so the frontend can read
 them directly where needed.
 """
+import re
 import secrets
 import uuid
 
@@ -201,11 +202,15 @@ class NotificationTemplate(models.Model):
         unique_together = [('company_id', 'event', 'channel')]
 
     def render(self, context: dict):
-        class _Safe(dict):
-            def __missing__(self, key):
-                return '{' + key + '}'
-        ctx = _Safe(context or {})
-        return self.subject.format_map(ctx), self.body.format_map(ctx)
+        ctx = context or {}
+
+        def _sub(match):
+            return str(ctx.get(match.group(1), match.group(0)))
+
+        return (
+            re.sub(r'\{(\w+)\}', _sub, self.subject),
+            re.sub(r'\{(\w+)\}', _sub, self.body),
+        )
 
 
 class NotificationLog(models.Model):

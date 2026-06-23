@@ -7,9 +7,9 @@ from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
+SECRET_KEY = config('SECRET_KEY')
 
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
 
@@ -122,6 +122,7 @@ USE_TZ = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -138,6 +139,16 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '200/hour',
+        'user': '2000/hour',
+        'login': '10/minute',
+        'otp': '5/minute',
+    },
 }
 
 # OpenAPI / Swagger documentation (served at /api/docs/, /api/redoc/)
@@ -178,7 +189,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Service key for dashboard API calls (set in environment)
-HR_SERVICE_KEY = config('HR_SERVICE_KEY', default='hr-dashboard-service-key-2024')
+HR_SERVICE_KEY = config('HR_SERVICE_KEY')
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
@@ -322,7 +333,7 @@ if _SUPABASE_S3_KEY and _SUPABASE_PROJECT_REF:
                 'secret_key': config('SUPABASE_S3_SECRET_ACCESS_KEY', default=''),
                 'bucket_name': config('SUPABASE_STORAGE_BUCKET', default='hr-media'),
                 'region_name': 'ap-southeast-1',
-                'default_acl': 'public-read',
+                'default_acl': 'private',
                 'file_overwrite': False,
                 'object_parameters': {'CacheControl': 'max-age=86400'},
             },
@@ -338,10 +349,29 @@ else:
     MEDIA_URL = '/media/'
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000,https://hr-system-dashboard-sheerlogic.vercel.app',
+    default=(
+        'http://localhost:3000,http://localhost:3001,http://localhost:3002,'
+        'http://127.0.0.1:3000,https://hr-system-dashboard-sheerlogic.vercel.app'
+    ),
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# Admin URL — keep unpredictable in production
+ADMIN_URL = config('ADMIN_URL', default='admin/')
+
+# Security headers (always on)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+
+# Additional HTTPS-only headers — skip in local dev so runserver still works
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True

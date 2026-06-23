@@ -1,6 +1,8 @@
 """
 Custom authentication for internal service-to-service calls.
 """
+import hmac
+
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from django.conf import settings
@@ -48,7 +50,7 @@ class ServiceKeyAuthentication(BaseAuthentication):
         if not provided_key:
             return None  # No key provided, let other auth methods handle it
 
-        if provided_key != service_key:
+        if not hmac.compare_digest(provided_key, service_key):
             raise AuthenticationFailed('Invalid service key')
 
         # Create a service user

@@ -11,6 +11,11 @@ from rest_framework import views
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+
+
+class _OTPThrottle(AnonRateThrottle):
+    scope = 'otp'
 
 from apps.core.models import OTPToken
 from apps.core.services.auth_provisioning import resolve_or_provision_login_user
@@ -38,6 +43,7 @@ def _login_payload(user, token):
 
 class SendOTPView(views.APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [_OTPThrottle]
 
     def post(self, request):
         email = (request.data.get('email') or '').strip().lower()
@@ -60,6 +66,7 @@ class SendOTPView(views.APIView):
 
 class VerifyOTPView(views.APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [_OTPThrottle]
 
     def post(self, request):
         email = (request.data.get('email') or '').strip().lower()
