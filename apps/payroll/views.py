@@ -151,16 +151,20 @@ class MeView(views.APIView):
         user = request.user
         profile = getattr(user, 'hr_profile', None)
 
-        # face_descriptor lives on EmployeeProfile, keyed by the Supabase UUID
+        # Pull extra fields from EmployeeProfile keyed by the Supabase UUID
         # forwarded in X-User-Id by the Next.js proxy.
         face_descriptor = None
+        worker_class = 'white_collar'
+        employee_id = str(getattr(profile, 'employee_id', '') or '')
         supabase_uid = request_user_id(request)
         if supabase_uid:
             ep = EmployeeProfile.objects.filter(
                 user_id=supabase_uid, is_deleted=False
-            ).values('face_descriptor').first()
+            ).values('face_descriptor', 'worker_class', 'id').first()
             if ep:
                 face_descriptor = ep['face_descriptor']
+                worker_class = ep['worker_class'] or 'white_collar'
+                employee_id = str(ep['id'])
 
         return Response({
             'user_id': str(user.id),
@@ -169,6 +173,8 @@ class MeView(views.APIView):
             'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
             'role': getattr(profile, 'role', 'super_admin'),
             'company_id': str(getattr(profile, 'company_id', '') or ''),
+            'employee_id': employee_id,
+            'worker_class': worker_class,
             'face_descriptor': face_descriptor,
         })
 

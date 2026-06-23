@@ -43,6 +43,9 @@ class CheckInSerializer(serializers.Serializer):
     lng = serializers.FloatField(required=False, allow_null=True)
     accuracy_m = serializers.FloatField(required=False, allow_null=True)
     selfie_b64 = serializers.CharField(required=False, allow_blank=True)
+    # face_verified is sent by the PWA when face-api.js does client-side
+    # comparison instead of uploading the selfie to SmileID.
+    face_verified = serializers.BooleanField(required=False, allow_null=True)
     device_id = serializers.CharField(required=False, allow_blank=True, default='')
     out_of_zone_reason = serializers.CharField(required=False, allow_blank=True,
                                                default='')

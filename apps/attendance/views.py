@@ -88,6 +88,7 @@ class CheckInView(APIView):
 
         face_result = {'verified': None, 'confidence': None}
         if d.get('selfie_b64'):
+            # SmileID server-side path (legacy / when SMILEID_DEMO_MODE=False)
             try:
                 face_result = smileid.verify_selfie(str(d['employee_id']),
                                                     d['selfie_b64'])
@@ -101,6 +102,16 @@ class CheckInView(APIView):
                                     company_id=d.get('company_id'))
                 return Response({'error': 'Face not recognized',
                                  'confidence': face_result['confidence']},
+                                status=status.HTTP_403_FORBIDDEN)
+        elif d.get('face_verified') is not None:
+            # face-api.js client-side path — PWA already compared descriptors
+            face_result['verified'] = d['face_verified']
+            if not face_result['verified']:
+                ServiceAuditLog.log('attendance.face_rejected', request=request,
+                                    object_type='employee',
+                                    object_id=str(d['employee_id']),
+                                    company_id=d.get('company_id'))
+                return Response({'error': 'Face not recognized'},
                                 status=status.HTTP_403_FORBIDDEN)
 
         zone, in_zone, distance = self._evaluate_zone(d)

@@ -30,6 +30,17 @@ def _login_payload(user, token):
     # X-User-Id must be a UUID (ServiceAuditLog.actor_user_id etc.) — use the
     # AppUser ("hr_profile") UUID, not Django auth.User's int id.
     user_id = str(profile.id) if profile else str(user.id)
+
+    # worker_class lives on EmployeeProfile, not on AppUser.
+    # Lazy-import to avoid circular deps; one extra query only at login.
+    worker_class = 'white_collar'
+    employee_id_val = str(getattr(profile, 'employee_id', '') or '')
+    if employee_id_val:
+        from apps.payroll.models import EmployeeProfile as _EP
+        ep = _EP.objects.filter(id=employee_id_val, is_deleted=False).values('worker_class').first()
+        if ep:
+            worker_class = ep['worker_class'] or 'white_collar'
+
     return {
         'token': token.key,
         'user_id': user_id,
@@ -37,7 +48,8 @@ def _login_payload(user, token):
         'full_name': getattr(profile, 'full_name', '') or user.get_full_name() or user.username,
         'role': getattr(profile, 'role', 'employee'),
         'company_id': str(getattr(profile, 'company_id', '') or ''),
-        'employee_id': str(getattr(profile, 'employee_id', '') or ''),
+        'employee_id': employee_id_val,
+        'worker_class': worker_class,
     }
 
 
