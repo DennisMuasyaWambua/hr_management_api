@@ -2,6 +2,33 @@ from rest_framework import serializers
 from .models import PayrollRun, PayrollRecord, PaymentBatch, EmployeeProfile, Company
 
 
+def _resolve_employee_name(emp):
+    """Resolve an employee's display name from the users table.
+
+    Names link to an employee by users.employee_id == employee.id first, then
+    fall back to users.id == employee.user_id for legacy rows; the job title is
+    used only when no name is on record. Honours a pre-annotated
+    ``user_full_name`` when present to avoid the per-row query.
+    """
+    annotated = getattr(emp, 'user_full_name', None)
+    if annotated:
+        return annotated
+    from django.db import connection
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT full_name FROM users "
+            "WHERE employee_id = %s AND full_name IS NOT NULL AND full_name <> '' "
+            "LIMIT 1", [str(emp.id)])
+        row = cursor.fetchone()
+        if not row and emp.user_id:
+            cursor.execute(
+                "SELECT full_name FROM users WHERE id = %s "
+                "AND full_name IS NOT NULL AND full_name <> '' LIMIT 1",
+                [str(emp.user_id)])
+            row = cursor.fetchone()
+    return (row[0] if row else None) or emp.job_title
+
+
 class EmployeePaymentSerializer(serializers.ModelSerializer):
     """Serializer for employee payment method updates"""
 
@@ -98,12 +125,17 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
     employee_number = serializers.CharField(
         source='employee.employee_number', read_only=True
     )
-    employee_name = serializers.CharField(
-        source='employee.job_title', read_only=True
-    )
+    employee_name = serializers.SerializerMethodField()
     total_deductions = serializers.DecimalField(
         max_digits=12, decimal_places=2, read_only=True
     )
+
+    def get_employee_name(self, obj):
+        # Resolve the person's real name from the users table the same way
+        # EmployeePayrollStatusViewSet does (employee_id link first, then
+        # user_id), instead of showing the job title. Falls back to the job
+        # title only when no name is on record.
+        return _resolve_employee_name(obj.employee)
 
     class Meta:
         model = PayrollRecord
