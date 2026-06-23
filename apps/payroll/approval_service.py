@@ -39,7 +39,6 @@ def submit_for_approval(run: PayrollRun, *, triggered_by=None, request=None) -> 
     # Re-submitting a pending run resends it: clear the prior cycle's approvals,
     # unsigned/unlocked documents and one-tap tokens so we regenerate cleanly.
     if run.status == 'pending_approval':
-        from apps.core.models import OneTapToken
         PayrollApproval.objects.filter(payroll_run_id=run.id).delete()
         PayrollDocument.objects.filter(payroll_run_id=run.id, is_locked=False).delete()
         OneTapToken.objects.filter(action='payroll.approve',
