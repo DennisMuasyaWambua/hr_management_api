@@ -527,7 +527,9 @@ class LeaveRequestViewSet(CompanyScopedViewSet):
         from apps.core.models import AppUser
         qs = super().get_queryset().annotate(
             employee_name=Subquery(
-                AppUser.objects.filter(id=OuterRef('employee_id')).values('full_name')[:1]
+                # LeaveRequest.employee_id == EmployeeProfile.id
+                # AppUser.employee_id also == EmployeeProfile.id
+                AppUser.objects.filter(employee_id=OuterRef('employee_id')).values('full_name')[:1]
             )
         )
         p = self.request.query_params
@@ -730,6 +732,81 @@ class BackgroundCheckViewSet(CompanyScopedViewSet):
     serializer_class = BackgroundCheckSerializer
     rbac_module = 'background_checks'
 
+    # ------------------------------------------------------------------ #
+    # Attach nested employee/candidate name objects so the dashboard       #
+    # never shows "Unknown" instead of real names.                         #
+    # Accepts a list of plain dicts (already serialized); returns the      #
+    # same list with 'employee' and 'candidate' keys populated.           #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _enrich(data):
+        emp_ids  = [str(r['employee_id'])  for r in data if r.get('employee_id')]
+        cand_ids = [str(r['candidate_id']) for r in data if r.get('candidate_id')]
+
+        emp_map  = {}
+        cand_map = {}
+
+        if emp_ids:
+            from apps.payroll.models import EmployeeProfile
+            from django.db import connections
+            profiles = list(
+                EmployeeProfile.objects.filter(id__in=emp_ids, is_deleted=False)
+                .values('id', 'employee_number', 'user_id')
+            )
+            user_ids = [str(p['user_id']) for p in profiles if p.get('user_id')]
+            user_map = {}
+            if user_ids:
+                ph = ','.join(['%s'] * len(user_ids))
+                with connections['default'].cursor() as cur:
+                    cur.execute(
+                        f"SELECT id::text, full_name, email FROM users WHERE id::text IN ({ph})",
+                        user_ids,
+                    )
+                    for row in cur.fetchall():
+                        user_map[str(row[0])] = {
+                            'full_name': row[1] or '',
+                            'email': row[2] or '',
+                        }
+            for p in profiles:
+                emp_map[str(p['id'])] = {
+                    'employee_number': p['employee_number'],
+                    'user': user_map.get(str(p['user_id']), {'full_name': '', 'email': ''}),
+                }
+
+        if cand_ids:
+            from apps.recruitment.models import Candidate
+            for c in Candidate.objects.filter(id__in=cand_ids, is_deleted=False).values('id', 'full_name', 'email'):
+                cand_map[str(c['id'])] = {
+                    'full_name': c['full_name'] or '',
+                    'email': c['email'] or '',
+                }
+
+        for record in data:
+            eid = str(record.get('employee_id') or '')
+            cid = str(record.get('candidate_id') or '')
+            record['employee']  = emp_map.get(eid)  if eid  else None
+            record['candidate'] = cand_map.get(cid) if cid else None
+
+        return data
+
+    def list(self, request, *args, **kwargs):
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        items = page if page is not None else list(qs)
+
+        data = [dict(r) for r in self.get_serializer(items, many=True).data]
+        self._enrich(data)
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        data = [dict(self.get_serializer(instance).data)]
+        self._enrich(data)
+        return Response(data[0])
+
     def get_queryset(self):
         qs = super().get_queryset()
         candidate_id = self.request.query_params.get('candidate_id')
@@ -791,7 +868,9 @@ class BackgroundCheckViewSet(CompanyScopedViewSet):
         check.completed_at = timezone.now()
         check.reviewed_by = request_user_id(request)
         check.save()
-        return Response(self.get_serializer(check).data)
+        data = [dict(self.get_serializer(check).data)]
+        self._enrich(data)
+        return Response(data[0])
 
 
 class KpiAssignmentViewSet(CompanyScopedViewSet):
