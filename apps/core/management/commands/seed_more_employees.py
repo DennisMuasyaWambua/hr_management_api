@@ -16,9 +16,11 @@ from django.core.management.base import BaseCommand
 
 DjangoUser = get_user_model()
 
-TENANT_ID = uuid.UUID('a1b2c3d4-0001-0001-0001-000000000001')
-COMPANY_ID = uuid.UUID('a1b2c3d4-0002-0002-0002-000000000002')
+# Default target: the Sheer Logic Technologies demo company.
+DEFAULT_COMPANY_ID = uuid.UUID('a1b2c3d4-0002-0002-0002-000000000002')
 MANAGER_UID = uuid.UUID('a1b2c3d4-0003-0003-0003-000000000011')
+# Stable namespace so re-runs are idempotent and per-company IDs never collide.
+NS = uuid.UUID('5f1b9d2c-0000-0000-0000-0000000000ff')
 
 # (suffix, full_name, title, dept, emp_type, worker_class, salary, method)
 # suffixes 0030-0049 — distinct from seed_demo's 0010/0011/0020-0027.
@@ -51,23 +53,52 @@ BANKS = ['Equity Bank', 'KCB', 'Cooperative', 'Stanbic', 'Absa']
 class Command(BaseCommand):
     help = 'Add 20 more demo employees to the Sheer Logic company.'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--company', default=str(DEFAULT_COMPANY_ID),
+            help='Target company by UUID or name substring.')
+
     def handle(self, *args, **opts):
         from apps.core.models import AppUser
         from apps.payroll.models import Company, EmployeeProfile
 
-        company = Company.objects.filter(id=COMPANY_ID).first()
+        target = opts['company']
+        company = None
+        try:
+            company = Company.objects.filter(id=uuid.UUID(target)).first()
+        except (ValueError, AttributeError):
+            pass
         if not company:
-            self.stderr.write('Demo company not found — run seed_demo first.')
+            company = Company.objects.filter(name__icontains=target, is_deleted=False).first()
+        if not company:
+            self.stderr.write(f'Company not found: {target}')
             return
+
+        company_id = company.id
+        tenant_id = company.tenant_id
+        # Per-company deterministic email suffix from the company name.
+        slug = ''.join(c for c in company.name.lower() if c.isalnum())[:12] or 'co'
+        is_default = company_id == DEFAULT_COMPANY_ID
+        # Employee-number prefix: 'SL' for the demo co, else company initials.
+        empno_prefix = 'SL' if is_default else (
+            ''.join(w[0] for w in company.name.split()[:3]).upper() or 'EMP')
+        self.stdout.write(f'Target: {company.name} ({company_id})')
 
         today = datetime.date.today()
         created_count = 0
 
         for (suffix, name, title, dept, etype, wclass, salary, method) in ROSTER:
-            uid = uuid.UUID(f'a1b2c3d4-0003-0003-0003-{suffix.zfill(12)}')
-            emp_id = uuid.UUID(f'a1b2c3d4-0004-0004-0004-{suffix.zfill(12)}')
+            # Demo company keeps its original stable IDs; other companies get
+            # deterministic uuid5 IDs namespaced by company so re-runs are
+            # idempotent and never collide across companies.
+            if is_default:
+                uid = uuid.UUID(f'a1b2c3d4-0003-0003-0003-{suffix.zfill(12)}')
+                emp_id = uuid.UUID(f'a1b2c3d4-0004-0004-0004-{suffix.zfill(12)}')
+            else:
+                uid = uuid.uuid5(NS, f'{company_id}-user-{suffix}')
+                emp_id = uuid.uuid5(NS, f'{company_id}-emp-{suffix}')
             first, *rest = name.split()
-            email = f'{first.lower()}.{("".join(rest) or "x").lower()}@sheerlogic.co.ke'
+            email = f'{first.lower()}.{("".join(rest) or "x").lower()}.{slug}@sheerlogic.co.ke'
             mpesa = f'+2547{random.randint(10000000, 99999999)}'
 
             # Django auth user
@@ -80,7 +111,7 @@ class Command(BaseCommand):
             app_user, _ = AppUser.objects.get_or_create(
                 id=uid,
                 defaults=dict(
-                    tenant_id=TENANT_ID, company_id=COMPANY_ID,
+                    tenant_id=tenant_id, company_id=company_id,
                     full_name=name, email=email, role='employee',
                     is_active=True, phone=mpesa, auth_user=dj_user,
                 ),
@@ -89,11 +120,11 @@ class Command(BaseCommand):
             emp, created = EmployeeProfile.objects.get_or_create(
                 id=emp_id,
                 defaults=dict(
-                    tenant_id=TENANT_ID, company=company, user_id=uid,
-                    employee_number=f'SL-{suffix[-3:]}',
+                    tenant_id=tenant_id, company=company, user_id=uid,
+                    employee_number=f'{empno_prefix}-{suffix[-3:]}',
                     department=dept, job_title=title,
                     employment_type=etype, employment_status='active',
-                    worker_class=wclass, manager_id=MANAGER_UID,
+                    worker_class=wclass, manager_id=(MANAGER_UID if is_default else None),
                     start_date=today - datetime.timedelta(days=random.randint(2, 40) * 30),
                     salary=salary, payment_method=method,
                     bank_name=(random.choice(BANKS) if method == 'bank' else None),
@@ -117,7 +148,7 @@ class Command(BaseCommand):
                 created_count += 1
 
         total = EmployeeProfile.objects.filter(
-            company_id=COMPANY_ID, is_deleted=False).count()
+            company_id=company_id, is_deleted=False).count()
         self.stdout.write(self.style.SUCCESS(
             f'Added {created_count} new employees (roster {len(ROSTER)}). '
             f'Company now has {total} active employees.'))
