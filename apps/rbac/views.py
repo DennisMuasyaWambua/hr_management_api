@@ -67,6 +67,8 @@ class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
     """Catalogue of permissions — rows/columns for the matrix UI."""
     queryset = Permission.objects.all()
     serializer_class = PermissionSerializer
+    permission_classes = [HasRBACPermission]
+    required_permissions = {'default': 'roles.manage'}
     pagination_class = None
 
 
