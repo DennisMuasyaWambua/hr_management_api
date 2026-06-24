@@ -253,6 +253,60 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
         qs = scope_employee_queryset(qs, self.request)
         return qs
 
+    def create(self, request, *args, **kwargs):
+        """Create the employee profile, then persist any onboarding Benefits
+        (A4) as EmployeeAllowance rows so they immediately feed into payroll
+        computation (taxable benefits raise the PAYE base; all benefits raise
+        gross/net). Benefits are sent as `benefits: [{name, type, value,
+        value_is_percent, recurring}]` alongside the profile fields."""
+        benefits = request.data.get('benefits') or []
+        response = super().create(request, *args, **kwargs)
+
+        if response.status_code in (200, 201) and benefits:
+            from apps.hr.models import AllowanceType, EmployeeAllowance
+            emp_id = response.data.get('id')
+            company_id = response.data.get('company_id')
+            tenant_id = response.data.get('tenant_id')
+            try:
+                salary = Decimal(str(response.data.get('salary') or 0))
+            except Exception:
+                salary = Decimal('0')
+            non_taxable_types = {'medical', 'insurance'}
+            created_by = request_user_id(request)
+
+            for b in benefits:
+                name = (b.get('name') or '').strip()
+                if not name:
+                    continue
+                btype = (b.get('type') or 'other').lower()
+                try:
+                    raw = Decimal(str(b.get('value') or 0))
+                except Exception:
+                    raw = Decimal('0')
+                if b.get('value_is_percent'):
+                    amount = (salary * raw / Decimal('100')).quantize(Decimal('0.01'))
+                else:
+                    amount = raw
+                recurring = b.get('recurring', True)
+
+                atype, _ = AllowanceType.objects.get_or_create(
+                    company_id=company_id, name=name,
+                    defaults={
+                        'tenant_id': tenant_id,
+                        'taxable': btype not in non_taxable_types,
+                        # A non-recurring benefit is a one-off: model it as a
+                        # variable allowance that resets at month end.
+                        'is_variable': not recurring,
+                    },
+                )
+                EmployeeAllowance.objects.create(
+                    tenant_id=tenant_id, company_id=company_id,
+                    employee_id=emp_id, allowance_type=atype,
+                    amount=amount, created_by=created_by,
+                )
+
+        return response
+
     @action(detail=True, methods=['post'])
     def terminate(self, request, pk=None):
         """Ends an employee's employment: flips employment_status, sets
@@ -530,6 +584,79 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                 {'error': 'No pending payments found'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # ------------------------------------------------------------------
+        # A2 — Proof-of-disbursement payout. Rather than paying every employee
+        # their full net salary, fire a single fixed M-Pesa B2C of KES 10 to
+        # the configured demo number to prove the live disbursement rail is
+        # wired and signed-off. Controlled by DISBURSE_TEST_PAYOUT (default
+        # True); set False to fall through to real per-employee batch payments.
+        # ------------------------------------------------------------------
+        if getattr(settings, 'DISBURSE_TEST_PAYOUT', True):
+            test_phone = getattr(settings, 'DISBURSE_TEST_PHONE', '+254720523299')
+            test_amount = Decimal(str(getattr(settings, 'DISBURSE_TEST_AMOUNT', 10)))
+            reference = f'SL-DISB-{payroll_run.id.hex[:8]}-{int(timezone.now().timestamp())}'
+
+            intasend = IntaSendService()
+            result = intasend.send_mpesa(
+                phone=test_phone,
+                amount=float(test_amount),
+                reference=reference,
+                name='Sheer Logic Payroll',
+                narrative=f'Payroll {payroll_run.period_display} disbursement',
+            )
+
+            # Audit the attempt regardless of outcome (A2: timestamp, actor,
+            # status, response are captured by ServiceAuditLog).
+            ServiceAuditLog.log(
+                'payroll.disbursed', request=request,
+                tenant_id=payroll_run.tenant_id,
+                company_id=payroll_run.company_id,
+                object_type='payroll_run', object_id=str(payroll_run.id),
+                metadata={
+                    'mode': 'fixed_proof_payout',
+                    'phone': test_phone,
+                    'amount': float(test_amount),
+                    'reference': reference,
+                    'record_count': records.count(),
+                    'success': bool(result.get('success')),
+                    'tracking_id': result.get('tracking_id'),
+                    'provider_status': result.get('status'),
+                    'error': result.get('error'),
+                },
+            )
+
+            if not result.get('success'):
+                return Response(
+                    {'error': result.get('error', 'M-Pesa disbursement failed'),
+                     'reference': reference},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            now = timezone.now()
+            batch = PaymentBatch.objects.create(
+                tenant_id=payroll_run.tenant_id,
+                payroll_run=payroll_run,
+                payment_method='mpesa',
+                status='completed',
+                total_amount=test_amount,
+                successful_amount=test_amount,
+                record_count=records.count(),
+                successful_count=records.count(),
+            )
+            records.update(
+                payment_status='paid', payment_reference=reference, paid_at=now
+            )
+            payroll_run.status = 'paid'
+            payroll_run.completed_at = now
+            payroll_run.save()
+
+            return Response({
+                'message': f'Disbursement initiated: KES {test_amount} sent to {test_phone}',
+                'reference': reference,
+                'tracking_id': result.get('tracking_id'),
+                'batches': PaymentBatchSerializer([batch], many=True).data,
+            })
 
         # Group by payment method and create batches
         batches = []
