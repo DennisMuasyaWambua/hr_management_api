@@ -1,0 +1,2095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sheer Logic HRMS — Enterprise Architecture Audit</title>
+  <style>
+    :root {
+      --brand:    #80151B;
+      --brand-dk: #5A0C11;
+      --gold:     #C9A84C;
+      --gold-lt:  #F0D98A;
+      --bg:       #F8F9FB;
+      --card:     #FFFFFF;
+      --border:   #E8ECF0;
+      --text:     #1A202C;
+      --muted:    #64748B;
+      --green:    #16A34A;
+      --yellow:   #CA8A04;
+      --red:      #DC2626;
+      --blue:     #2563EB;
+      --purple:   #7C3AED;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    /* ── SIDEBAR ─────────────────────────────────── */
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 260px;
+      height: 100vh;
+      background: linear-gradient(170deg, var(--brand-dk), #2D0408);
+      overflow-y: auto;
+      z-index: 100;
+      padding-bottom: 40px;
+    }
+
+    .sidebar-logo {
+      padding: 28px 24px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .sidebar-logo h1 {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .sidebar-logo p {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      margin-top: 3px;
+    }
+
+    .sidebar nav { padding: 16px 0; }
+
+    .nav-section {
+      padding: 12px 24px 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+    }
+
+    .sidebar a {
+      display: block;
+      padding: 8px 24px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.65);
+      text-decoration: none;
+      transition: all 0.15s;
+      border-left: 3px solid transparent;
+    }
+
+    .sidebar a:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.07);
+      border-left-color: var(--gold);
+    }
+
+    /* ── MAIN ────────────────────────────────────── */
+    .main {
+      margin-left: 260px;
+      min-height: 100vh;
+    }
+
+    /* ── HERO ────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dk) 60%, #1A0306 100%);
+      padding: 60px 60px 50px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 360px; height: 360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(201,168,76,0.18) 0%, transparent 70%);
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: rgba(201,168,76,0.15);
+      border: 1px solid rgba(201,168,76,0.4);
+      color: var(--gold-lt);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 20px;
+      margin-bottom: 18px;
+    }
+
+    .hero h1 {
+      font-size: 36px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1.15;
+      max-width: 600px;
+    }
+
+    .hero h1 span { color: var(--gold); }
+
+    .hero-meta {
+      display: flex;
+      gap: 32px;
+      margin-top: 28px;
+    }
+
+    .hero-meta-item { }
+
+    .hero-meta-item .label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .hero-meta-item .value {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      margin-top: 2px;
+    }
+
+    /* ── CONTENT ─────────────────────────────────── */
+    .content { padding: 48px 60px; max-width: 1100px; }
+
+    /* ── SECTION ─────────────────────────────────── */
+    .section {
+      margin-bottom: 56px;
+      scroll-margin-top: 24px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+      padding-bottom: 14px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .section-num {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--brand), var(--brand-dk));
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .section-header h2 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    /* ── CARDS ───────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--brand);
+      flex-shrink: 0;
+    }
+
+    .card p { color: #374151; margin-bottom: 8px; font-size: 14px; }
+    .card p:last-child { margin-bottom: 0; }
+
+    /* ── MODULE GRID ─────────────────────────────── */
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+      gap: 20px;
+    }
+
+    .module-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+
+    .module-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      gap: 12px;
+    }
+
+    .module-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .module-purpose {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .status-5 { background: #DCFCE7; color: #15803D; }
+    .status-4 { background: #DBEAFE; color: #1D4ED8; }
+    .status-3 { background: #FEF9C3; color: #A16207; }
+    .status-2 { background: #FEE2E2; color: #B91C1C; }
+    .status-1 { background: #F3E8FF; color: #6D28D9; }
+    .status-0 { background: #F1F5F9; color: #64748B; }
+
+    .module-features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .feature-tag {
+      font-size: 11px;
+      background: #F1F5F9;
+      color: #475569;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+
+    .module-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .module-meta-item { }
+    .module-meta-item .k { color: var(--muted); font-weight: 600; }
+    .module-meta-item .v { color: var(--text); margin-top: 1px; }
+
+    /* ── TABLES ──────────────────────────────────── */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: #F8FAFC;
+      padding: 11px 16px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 11px 16px;
+      border-bottom: 1px solid #F1F5F9;
+      vertical-align: top;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #FAFBFC; }
+
+    /* ── WORKFLOW ────────────────────────────────── */
+    .workflow-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .workflow-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .workflow-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      position: relative;
+    }
+
+    .flow-step-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .flow-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--brand), var(--brand-dk));
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+
+    .flow-dot.decision {
+      background: linear-gradient(135deg, var(--gold), #A07830);
+      transform: rotate(45deg);
+      border-radius: 4px;
+      width: 24px; height: 24px;
+    }
+
+    .flow-dot.decision span { transform: rotate(-45deg); display: block; }
+
+    .flow-dot.terminal {
+      background: linear-gradient(135deg, var(--green), #0F6130);
+    }
+
+    .flow-dot.missing {
+      background: #F1F5F9;
+      border: 2px dashed #CBD5E1;
+      color: var(--muted);
+    }
+
+    .flow-connector {
+      width: 2px;
+      height: 20px;
+      background: #E2E8F0;
+      margin: 2px 0;
+    }
+
+    .flow-content {
+      padding: 3px 0 18px;
+    }
+
+    .flow-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .flow-sublabel {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .missing-tag {
+      display: inline-block;
+      background: #FEF2F2;
+      color: var(--red);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-left: 6px;
+      text-transform: uppercase;
+    }
+
+    /* ── RISK ────────────────────────────────────── */
+    .risk-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .risk-card {
+      border-radius: 12px;
+      padding: 18px 20px;
+      border-left: 4px solid;
+    }
+
+    .risk-critical { background: #FFF1F2; border-color: #E11D48; }
+    .risk-high     { background: #FFF7ED; border-color: #EA580C; }
+    .risk-medium   { background: #FEFCE8; border-color: #CA8A04; }
+    .risk-low      { background: #F0FDF4; border-color: #16A34A; }
+
+    .risk-level {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .risk-critical .risk-level { color: #E11D48; }
+    .risk-high .risk-level     { color: #EA580C; }
+    .risk-medium .risk-level   { color: #CA8A04; }
+    .risk-low .risk-level      { color: #16A34A; }
+
+    .risk-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .risk-desc {
+      font-size: 13px;
+      color: #4B5563;
+    }
+
+    /* ── GAP ANALYSIS ────────────────────────────── */
+    .gap-impl     { color: var(--green);  font-weight: 700; }
+    .gap-partial  { color: var(--yellow); font-weight: 700; }
+    .gap-missing  { color: var(--red);    font-weight: 700; }
+    .gap-proto    { color: var(--purple); font-weight: 700; }
+
+    /* ── MATURITY ────────────────────────────────── */
+    .maturity-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .maturity-bar {
+      flex: 1;
+      height: 8px;
+      background: #F1F5F9;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .maturity-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--brand), var(--gold));
+    }
+
+    .maturity-score {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--brand);
+      width: 28px;
+      text-align: right;
+    }
+
+    /* ── CODE BLOCKS ─────────────────────────────── */
+    pre {
+      background: #0F1117;
+      color: #E2E8F0;
+      border-radius: 10px;
+      padding: 18px 20px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.7;
+      margin: 12px 0;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    code {
+      background: #F1F5F9;
+      color: var(--brand);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    pre code { background: none; color: inherit; padding: 0; }
+
+    /* ── ROADMAP ─────────────────────────────────── */
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .roadmap-col {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .roadmap-header {
+      padding: 16px 20px;
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .roadmap-30  .roadmap-header { background: linear-gradient(135deg, #16A34A, #0F6130); }
+    .roadmap-90  .roadmap-header { background: linear-gradient(135deg, #2563EB, #1D4ED8); }
+    .roadmap-12m .roadmap-header { background: linear-gradient(135deg, var(--brand), var(--brand-dk)); }
+
+    .roadmap-items { padding: 14px 20px; }
+
+    .roadmap-item {
+      display: flex;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid #F1F5F9;
+      font-size: 13px;
+    }
+
+    .roadmap-item:last-child { border-bottom: none; }
+
+    .roadmap-item .num {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: #F1F5F9;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .roadmap-item .text { color: var(--text); font-weight: 500; }
+    .roadmap-item .sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── ARCH DIAGRAM ────────────────────────────── */
+    .arch-diagram {
+      background: #0F1117;
+      border-radius: 14px;
+      padding: 32px;
+      color: #E2E8F0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.8;
+      overflow-x: auto;
+    }
+
+    .arch-layer {
+      margin-bottom: 24px;
+    }
+
+    .arch-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 10px;
+    }
+
+    .arch-boxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .arch-box {
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .arch-box.highlight {
+      border-color: rgba(201,168,76,0.5);
+      background: rgba(201,168,76,0.07);
+      color: var(--gold-lt);
+    }
+
+    .arch-box.warning {
+      border-color: rgba(220,38,38,0.5);
+      background: rgba(220,38,38,0.07);
+      color: #FCA5A5;
+    }
+
+    .arch-arrow {
+      color: #4B5563;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin: 4px 0;
+    }
+
+    /* ── EXEC SUMMARY ────────────────────────────── */
+    .exec-card {
+      background: linear-gradient(135deg, var(--brand), var(--brand-dk));
+      border-radius: 14px;
+      padding: 30px 32px;
+      color: #fff;
+      margin-bottom: 24px;
+    }
+
+    .exec-card p {
+      color: rgba(255,255,255,0.85);
+      font-size: 15px;
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+
+    .exec-card p:last-child { margin-bottom: 0; }
+
+    .exec-highlights {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .exec-highlight {
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+
+    .exec-highlight .val {
+      font-size: 28px;
+      font-weight: 900;
+      color: var(--gold-lt);
+    }
+
+    .exec-highlight .lbl {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 3px;
+    }
+
+    /* ── DATA MODEL ──────────────────────────────── */
+    .erd-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+    }
+
+    .entity-block {
+      display: inline-block;
+      background: #F8FAFC;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brand);
+      margin: 4px;
+    }
+
+    /* ── MOAT CARDS ──────────────────────────────── */
+    .moat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .moat-card {
+      background: linear-gradient(135deg, #FFF8E7, #FFFDF4);
+      border: 1px solid rgba(201,168,76,0.3);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .moat-num {
+      font-size: 28px;
+      font-weight: 900;
+      color: var(--gold);
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+
+    .moat-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .moat-desc { font-size: 13px; color: #4B5563; }
+
+    /* ── UTILS ───────────────────────────────────── */
+    .label-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+    }
+
+    .tag-green  { background: #DCFCE7; color: #15803D; }
+    .tag-blue   { background: #DBEAFE; color: #1D4ED8; }
+    .tag-yellow { background: #FEF9C3; color: #A16207; }
+    .tag-red    { background: #FEE2E2; color: #B91C1C; }
+    .tag-gray   { background: #F1F5F9; color: #475569; }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 20px 0 12px;
+    }
+
+    h4 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+      margin: 16px 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    ul {
+      padding-left: 20px;
+      margin: 8px 0;
+    }
+
+    ul li {
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 4px;
+      padding-left: 4px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; }
+      .hero, .content { padding: 28px 24px; }
+      .module-grid { grid-template-columns: 1fr; }
+      .risk-grid, .roadmap-grid, .exec-highlights, .moat-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>Sheer Logic HRMS</h1>
+    <p>Architecture Audit · June 2026</p>
+  </div>
+  <nav>
+    <div class="nav-section">Overview</div>
+    <a href="#exec">Executive Summary</a>
+    <a href="#inventory">System Inventory</a>
+
+    <div class="nav-section">Analysis</div>
+    <a href="#rbac">User Roles (RBAC)</a>
+    <a href="#workflows">Workflows</a>
+    <a href="#datamodel">Data Model</a>
+    <a href="#navigation">Navigation Map</a>
+
+    <div class="nav-section">Audit</div>
+    <a href="#gaps">Feature Gap Analysis</a>
+    <a href="#maturity">Maturity Scores</a>
+    <a href="#architecture">Technical Architecture</a>
+    <a href="#risks">Risk Assessment</a>
+
+    <div class="nav-section">Strategy</div>
+    <a href="#roadmap">Product Roadmap</a>
+    <a href="#moats">Competitive Moats</a>
+  </nav>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">Enterprise Architecture Audit · Confidential</div>
+    <h1>Sheer Logic <span>HRMS</span><br>System Discovery Report</h1>
+    <div class="hero-meta">
+      <div class="hero-meta-item">
+        <div class="label">Audited</div>
+        <div class="value">24 June 2026</div>
+      </div>
+      <div class="hero-meta-item">
+        <div class="label">Role</div>
+        <div class="value">Senior Enterprise Solutions Architect</div>
+      </div>
+      <div class="hero-meta-item">
+        <div class="label">Scope</div>
+        <div class="value">Full Stack (API + PWA)</div>
+      </div>
+      <div class="hero-meta-item">
+        <div class="label">Market</div>
+        <div class="value">Kenya · East Africa</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- EXEC SUMMARY -->
+    <section class="section" id="exec">
+      <div class="section-header">
+        <div class="section-num">ES</div>
+        <h2>Executive Summary</h2>
+      </div>
+
+      <div class="exec-card">
+        <p>This platform is a <strong>purpose-built Kenya-market HRMS</strong> — not a general ERP. It handles the full employee lifecycle from recruitment to exit, with payroll disbursement via three live payment gateways, biometric attendance, geofencing, multi-approver workflows, and e-signatures via DocuSeal. The architecture is sound: multi-tenant, RBAC-governed, audit-logged, and event-driven via Celery.</p>
+        <p>The system is approximately <strong>70% of the way to a commercially shippable SME HR platform</strong> for East Africa. The two most significant gaps are: (1) the Recruitment module is structurally weak relative to everything else — no dashboard UI, no interview scheduling, no ATS workflow beyond stage tagging; and (2) there is no analytics layer — the data is rich but nothing surfaces it to decision-makers.</p>
+        <p>Closest commercial competitor: <strong>Workpay.africa</strong>. Differentiation is the depth of compliance (statutory rates versioning, exit clearance, minimum wage alerts), the M-of-N payroll approval workflow, and the biometric attendance stack.</p>
+        <div class="exec-highlights">
+          <div class="exec-highlight">
+            <div class="val">8</div>
+            <div class="lbl">Modules Built</div>
+          </div>
+          <div class="exec-highlight">
+            <div class="val">70%</div>
+            <div class="lbl">Estimated Completion</div>
+          </div>
+          <div class="exec-highlight">
+            <div class="val">3</div>
+            <div class="lbl">Payment Gateways</div>
+          </div>
+          <div class="exec-highlight">
+            <div class="val">50+</div>
+            <div class="lbl">API Endpoints</div>
+          </div>
+          <div class="exec-highlight">
+            <div class="val">8</div>
+            <div class="lbl">User Roles</div>
+          </div>
+          <div class="exec-highlight">
+            <div class="val">4</div>
+            <div class="lbl">Critical Risks</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SYSTEM INVENTORY -->
+    <section class="section" id="inventory">
+      <div class="section-header">
+        <div class="section-num">1</div>
+        <h2>System Inventory</h2>
+      </div>
+
+      <div class="module-grid">
+
+        <!-- Core / RBAC -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Core / Authentication &amp; RBAC</div>
+              <div class="module-purpose">Identity, access control, audit trail, notifications, e-signatures</div>
+            </div>
+            <div class="status-pill status-4">● Advanced</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">OTP Login</span>
+            <span class="feature-tag">8 System Roles</span>
+            <span class="feature-tag">Module Permissions</span>
+            <span class="feature-tag">Deployed Scoping</span>
+            <span class="feature-tag">Service-Key Auth</span>
+            <span class="feature-tag">Audit Log</span>
+            <span class="feature-tag">Notification Templates</span>
+            <span class="feature-tag">Email + SMS + WhatsApp</span>
+            <span class="feature-tag">One-Tap Approval Tokens</span>
+            <span class="feature-tag">DocuSeal e-Sign</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">Role, Permission, RolePermission, UserRoleAssignment, StaffAssignment, ServiceAuditLog, NotificationTemplate, NotificationLog, OneTapToken, AppUser, OTPToken</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">SSO/OAuth, session revocation UI, self-service permission requests</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HR Core -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">HR Core — Employee Lifecycle</div>
+              <div class="module-purpose">Hire to exit: leaves, overtime, disciplinary, exits, certificates, background checks</div>
+            </div>
+            <div class="status-pill status-3">● Functional</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">9 Leave Types</span>
+            <span class="feature-tag">Leave Balances</span>
+            <span class="feature-tag">Leave Recall</span>
+            <span class="feature-tag">Overtime (1.5×)</span>
+            <span class="feature-tag">Reimbursements</span>
+            <span class="feature-tag">Disciplinary Chain</span>
+            <span class="feature-tag">Exit Clearance</span>
+            <span class="feature-tag">Certificate Expiry Alerts</span>
+            <span class="feature-tag">Background Checks</span>
+            <span class="feature-tag">Onboarding Docs</span>
+            <span class="feature-tag">Announcements</span>
+            <span class="feature-tag">Medical Records</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">22 models including AllowanceType, DisciplinaryRecord, EmployeeExit, ExitClearance, LeaveRequest, LeaveBalance, EmployeeCertificate, BackgroundCheck, EmployeeOnboardingDocument</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">HR admin dashboard UI, bulk operations, document template management UI</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Payroll -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Payroll</div>
+              <div class="module-purpose">Kenya-compliant computation, M-of-N approvals, 3-gateway disbursement</div>
+            </div>
+            <div class="status-pill status-4">● Advanced</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">PAYE + NSSF + NHIF + Housing Levy</span>
+            <span class="feature-tag">Statutory Rate Versioning</span>
+            <span class="feature-tag">M-of-N Approvals</span>
+            <span class="feature-tag">DocuSeal Signatures</span>
+            <span class="feature-tag">One-Tap Links</span>
+            <span class="feature-tag">PDF + Excel Generation</span>
+            <span class="feature-tag">SHA-256 Document Lock</span>
+            <span class="feature-tag">Daraja B2C</span>
+            <span class="feature-tag">IntaSend</span>
+            <span class="feature-tag">PesaPal (M-Pesa + Airtel + Bank)</span>
+            <span class="feature-tag">SMS Payment Notifications</span>
+            <span class="feature-tag">Minimum Wage Compliance Check</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">Company, EmployeeProfile, PayrollRun, PayrollRecord, PaymentBatch, ApproverConfig, PayrollApprover, PayrollApproval, PayrollDocument</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">Payroll reversal/correction, bank file export (KCB/Equity format), pension integration</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Attendance -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Attendance</div>
+              <div class="module-purpose">GPS-verified, biometric, geofenced time tracking</div>
+            </div>
+            <div class="status-pill status-3">● Functional</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">Geofenced Zones (Circle + Polygon)</span>
+            <span class="feature-tag">Zone Assignments</span>
+            <span class="feature-tag">Face Verification (face-api.js)</span>
+            <span class="feature-tag">SmileID Biometric</span>
+            <span class="feature-tag">GPS Coordinates + Accuracy</span>
+            <span class="feature-tag">5 Event Types</span>
+            <span class="feature-tag">Violation Tracking</span>
+            <span class="feature-tag">TimescaleDB Ready</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">WorkZone, EmployeeZoneAssignment, AttendanceEvent (hypertable), GeofenceViolation</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">Shift scheduling, attendance reports, manual correction, manager violation review UI</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recruitment -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Recruitment / ATS</div>
+              <div class="module-purpose">Job postings, AI CV scoring, public careers site, candidate pipeline</div>
+            </div>
+            <div class="status-pill status-2">● Basic</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">Job Postings</span>
+            <span class="feature-tag">6-Stage Pipeline</span>
+            <span class="feature-tag">GROQ AI CV Scoring</span>
+            <span class="feature-tag">Auto-Reject Threshold</span>
+            <span class="feature-tag">Public Careers API</span>
+            <span class="feature-tag">Application Tracking Token</span>
+            <span class="feature-tag">Job Alert Subscriptions</span>
+            <span class="feature-tag">Data Consent + Retention</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">JobPosting, Candidate, JobAlert, JobAlertLog</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">ATS dashboard UI, interview scheduling, offer letter generation, hire→employee handoff (CRITICAL)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Performance Management</div>
+              <div class="module-purpose">KPI assignments and formal review cycles</div>
+            </div>
+            <div class="status-pill status-1">● Prototype</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">KPI Assignments (JSON targets/scores)</span>
+            <span class="feature-tag">Quarterly Periods</span>
+            <span class="feature-tag">Performance Reviews (1–5 rating)</span>
+            <span class="feature-tag">Promotion Flag</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">KpiAssignment, PerformanceReview</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">Cycle automation, employee self-assessment, calibration, visual dashboard, rating distribution analysis</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- L&D -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Learning &amp; Development</div>
+              <div class="module-purpose">Training session and enrollment tracking</div>
+            </div>
+            <div class="status-pill status-1">● Prototype</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">Training Sessions</span>
+            <span class="feature-tag">Mandatory Flag</span>
+            <span class="feature-tag">Department Scope</span>
+            <span class="feature-tag">5 Enrollment Statuses</span>
+            <span class="feature-tag">Score + Certificate URL</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tables</div>
+              <div class="v">TrainingSession, TrainingEnrollment</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">Content delivery, quizzes, learning paths, LMS features, certificate generation</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PWA -->
+        <div class="module-card">
+          <div class="module-card-header">
+            <div>
+              <div class="module-name">Employee Self-Service PWA</div>
+              <div class="module-purpose">Mobile-first employee interface for daily HR interactions</div>
+            </div>
+            <div class="status-pill status-3">● Functional</div>
+          </div>
+          <div class="module-features">
+            <span class="feature-tag">Home Dashboard</span>
+            <span class="feature-tag">Leave Requests</span>
+            <span class="feature-tag">Face-Verified Check-In</span>
+            <span class="feature-tag">Payslip + PDF Download</span>
+            <span class="feature-tag">Payment Method Management</span>
+            <span class="feature-tag">Manager Approval Queue</span>
+            <span class="feature-tag">EN/SW Language Toggle</span>
+          </div>
+          <div class="module-meta">
+            <div class="module-meta-item">
+              <div class="k">Tech</div>
+              <div class="v">Next.js 14, TypeScript, Tailwind, Zustand, face-api.js, jsPDF, Vaul, Framer Motion</div>
+            </div>
+            <div class="module-meta-item">
+              <div class="k">Missing</div>
+              <div class="v">Push notifications, offline mode, Swahili strings not populated, no documents/performance/training pages</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- RBAC -->
+    <section class="section" id="rbac">
+      <div class="section-header">
+        <div class="section-num">2</div>
+        <h2>User Roles &amp; RBAC Matrix</h2>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title"><span class="dot"></span>Role Hierarchy</div>
+        <p>Roles are ranked numerically — lower rank = more authority. Roles are system-defined or company-scoped. Deployed roles (25/35) are additionally scoped by <code>StaffAssignment</code> to restrict visible employees.</p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Rank</th>
+              <th>Payroll</th>
+              <th>Leave</th>
+              <th>Attendance</th>
+              <th>Recruitment</th>
+              <th>Performance</th>
+              <th>Disciplinary</th>
+              <th>RBAC Admin</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>super_admin</strong></td><td>0</td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+            </tr>
+            <tr>
+              <td><strong>company_admin</strong></td><td>10</td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+            </tr>
+            <tr>
+              <td><strong>internal_hr</strong></td><td>20</td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-green">Full</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+            <tr>
+              <td><strong>deployed_hr</strong></td><td>25</td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+            <tr>
+              <td><strong>internal_manager</strong></td><td>30</td>
+              <td><span class="tag tag-red">Blocked</span></td>
+              <td><span class="tag tag-blue">Approve</span></td>
+              <td><span class="tag tag-blue">View</span></td>
+              <td><span class="tag tag-blue">View</span></td>
+              <td><span class="tag tag-blue">View</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+            <tr>
+              <td><strong>deployed_manager</strong></td><td>35</td>
+              <td><span class="tag tag-red">Blocked</span></td>
+              <td><span class="tag tag-yellow">Scoped Approve</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-yellow">Scoped View</span></td>
+              <td><span class="tag tag-yellow">Scoped</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+            <tr>
+              <td><strong>white_collar_employee</strong></td><td>40</td>
+              <td><span class="tag tag-gray">Own Payslip</span></td>
+              <td><span class="tag tag-blue">Own Requests</span></td>
+              <td><span class="tag tag-gray">Not Required</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-blue">Own Only</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+            <tr>
+              <td><strong>blue_collar_employee</strong></td><td>45</td>
+              <td><span class="tag tag-gray">Own Payslip</span></td>
+              <td><span class="tag tag-blue">Own Requests</span></td>
+              <td><span class="tag tag-green">Check In/Out</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-blue">Own Only</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+              <td><span class="tag tag-gray">No</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <div class="card-title"><span class="dot"></span>Architecture Notes</div>
+        <ul>
+          <li><code>PayrollHROnly</code> is a hardcoded rule — no RBAC configuration can open payroll to managers or employees. Correct by design.</li>
+          <li>Deployed roles (25, 35) are scoped via the <code>StaffAssignment</code> table — they only see their assigned employees.</li>
+          <li>Legacy slugs <code>hr</code> / <code>manager</code> / <code>employee</code> map to internal_ variants for backward compatibility.</li>
+          <li><code>RBAC_STRICT=False</code> by default — service-key calls bypass header checks. Should be <code>True</code> in production.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- WORKFLOWS -->
+    <section class="section" id="workflows">
+      <div class="section-header">
+        <div class="section-num">3</div>
+        <h2>Workflow Discovery</h2>
+      </div>
+
+      <!-- Payroll Workflow -->
+      <div class="workflow-card">
+        <div class="workflow-title">💰 Payroll Processing Workflow</div>
+        <div class="workflow-flow">
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">1</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR creates PayrollRun for month</div><div class="flow-sublabel">status = draft</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">2</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">KenyanTaxCalculator runs per employee</div><div class="flow-sublabel">gross → PAYE + NSSF + NHIF + Housing Levy + HELB → net · allowances + deductions included</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">3</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Minimum wage compliance check</div><div class="flow-sublabel">ComplianceAlert created if breach · status = calculated</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">4</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR submits → POST /api/payroll-workflow/{id}/submit/</div><div class="flow-sublabel">Password-protected PDF + Excel generated → S3 (SHA-256) · DocuSeal submissions opened per approver · One-tap links sent via SMS + email · status = pending_approval</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot decision"><span>?</span></div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Each approver actions: dashboard / DocuSeal / one-tap</div><div class="flow-sublabel">M-of-N quorum check after each approval</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">5</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Quorum met → status = approved</div><div class="flow-sublabel">HR triggers disbursement: M-Pesa (Daraja/IntaSend) · Airtel (PesaPal) · Bank EFT (PesaPal)</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">6</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">PaymentBatch tracked · SMS notification to each employee</div><div class="flow-sublabel">Africa's Talking SMS on successful payment</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot terminal">✓</div></div>
+            <div class="flow-content"><div class="flow-label">HR marks paid → documents locked (immutable)</div><div class="flow-sublabel">status = paid (terminal) · SHA-256 document integrity preserved</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leave Workflow -->
+      <div class="workflow-card">
+        <div class="workflow-title">🏖 Leave Request Workflow</div>
+        <div class="workflow-flow">
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">1</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Employee submits via PWA → POST /api/me/leave/</div><div class="flow-sublabel">LeaveRequest created (status=pending)</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">2</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">NotificationTemplate 'leave.requested' → Manager notified</div><div class="flow-sublabel">Email + SMS + WhatsApp with one-tap approval link</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot decision"><span>?</span></div><div class="flow-connector"></div></div>
+            <div class="flow-content">
+              <div class="flow-label">Manager action via one-tap / dashboard</div>
+              <div class="flow-sublabel">No escalation on non-response <span class="missing-tag">Missing</span></div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot terminal">✓</div></div>
+            <div class="flow-content"><div class="flow-label">Approved: balance deducted · Employee notified · Rejected: reason set · Employee notified</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recruitment Workflow -->
+      <div class="workflow-card">
+        <div class="workflow-title">👤 Recruitment → Hire Workflow</div>
+        <div class="workflow-flow">
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">1</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR creates JobPosting (status=open)</div><div class="flow-sublabel">Job alert subscribers notified (instant/daily/weekly)</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">2</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Candidate applies → POST /api/careers/jobs/{id}/apply/</div><div class="flow-sublabel">GROQ AI scores CV if cv_text provided · Auto-rejects if score &lt; threshold</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot missing">!</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR reviews candidate list <span class="missing-tag">No Dashboard UI</span></div><div class="flow-sublabel">Currently requires direct API access</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">3</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR advances stages: screened → interview_l1 → interview_l2 → offer_sent</div><div class="flow-sublabel">Interview scheduling <span class="missing-tag">Not Built</span> · Offer letter <span class="missing-tag">Not Built</span></div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">4</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Candidate accepted → current_stage = hired</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot missing">!</div></div>
+            <div class="flow-content"><div class="flow-label">EmployeeProfile created <span class="missing-tag">Manual — Broken Handoff</span></div><div class="flow-sublabel">Hired candidate never automatically becomes an EmployeeProfile. Data must be re-entered manually. This is the single most broken workflow.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Disciplinary / Exit -->
+      <div class="workflow-card">
+        <div class="workflow-title">🚪 Disciplinary &amp; Exit Workflow</div>
+        <div class="workflow-flow">
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">1</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">HR creates DisciplinaryRecord</div><div class="flow-sublabel">verbal_warning → warning_letter → salary_penalty → suspension → termination_recommendation · self-referential escalation chain</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">2</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">EmployeeExit created (kind + disciplinary_record_fk)</div><div class="flow-sublabel">ExitClearance auto-created (one-to-one)</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot">3</div><div class="flow-connector"></div></div>
+            <div class="flow-content"><div class="flow-label">Each department signs off: IT / Finance / Admin / HR / Manager</div><div class="flow-sublabel">POST /api/exits/{pk}/clearance/{pk}/sign_section/ · ExitClearance.refresh_status() → pending → in_progress → complete</div></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-line"><div class="flow-dot terminal">✓</div></div>
+            <div class="flow-content"><div class="flow-label">final_dues computed · final payroll record linked</div><div class="flow-sublabel">P9 tax certificate <span class="missing-tag">Not Built</span> · Automated last payroll trigger <span class="missing-tag">Not Built</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATA MODEL -->
+    <section class="section" id="datamodel">
+      <div class="section-header">
+        <div class="section-num">4</div>
+        <h2>Data Model Overview</h2>
+      </div>
+
+      <div class="erd-wrap">
+        <pre style="background:#F8FAFC; color:#1A202C; border:none; padding:0;">Company (1)
+  ├── (N) EmployeeProfile
+  │     ├── face_descriptor (128-float, from face-api.js)
+  │     ├── payment_method + bank / mpesa / airtel details
+  │     ├── statutory IDs (KRA PIN, NSSF, NHIF)
+  │     ├── worker_class (white_collar / blue_collar)
+  │     │
+  │     ├── (N) LeaveRequest ──────────────────────► LeaveBalance
+  │     ├── (N) LeaveRecall ───────────────────────► LeaveRequest
+  │     ├── (N) OvertimeRequest
+  │     ├── (N) Reimbursement
+  │     ├── (N) EmployeeAllowance ─────────────────► AllowanceType
+  │     ├── (N) EmployeeDeduction ─────────────────► DeductionType ──► DisciplinaryRecord?
+  │     ├── (N) DisciplinaryRecord (self-ref escalation)
+  │     │         └── (1?) EmployeeExit
+  │     │                   └── (1) ExitClearance
+  │     │                         └── (N) ExitClearanceItem
+  │     ├── (N) EmployeeCertificate
+  │     ├── (N) MedicalRecord
+  │     ├── (N) BackgroundCheck  ◄── XOR ──► Candidate
+  │     ├── (N) KpiAssignment
+  │     ├── (N) PerformanceReview
+  │     ├── (N) TrainingEnrollment ───────────────► TrainingSession
+  │     ├── (N) EmployeeOnboardingDocument
+  │     ├── (N) AttendanceEvent (hypertable, partitioned by time)
+  │     ├── (N) EmployeeZoneAssignment ───────────► WorkZone
+  │     └── (N) GeofenceViolation ────────────────► WorkZone
+  │
+  ├── (N) PayrollRun
+  │     ├── (N) PayrollRecord ─────────────────────► EmployeeProfile
+  │     ├── (N) PaymentBatch
+  │     ├── (N) PayrollApproval ─────────────────► PayrollApprover
+  │     └── (N) PayrollDocument (PDF/Excel, SHA-256, S3)
+  │
+  ├── (1?) ApproverConfig
+  │     └── (N) PayrollApprover
+  │
+  ├── (N) JobPosting
+  │     └── (N) Candidate
+  │           └── (1?) BackgroundCheck (candidate_id path)
+  │
+  ├── (N) JobAlert
+  │     └── (N) JobAlertLog ──────────────────────► JobPosting
+  │
+  ├── (N) Announcement (optional: department-scoped)
+  ├── (N) WorkZone
+  ├── (N) Role (company-scoped or global)
+  └── (N) NotificationTemplate (company-specific or global)
+
+StatutoryRate  (global or company-scoped, versioned by effective_from / effective_to)
+MinimumWage    (global, by job_category + region)
+Role ──► (N) RolePermission ──► Permission
+AppUser ──► (N) UserRoleAssignment ──► Role
+AppUser ──► (N) StaffAssignment (deployed HR/manager → employee_id list)
+ServiceAuditLog  (immutable · actor + action + object + metadata + IP)
+OneTapToken      (single-use, 72h TTL · action + object_id)
+NotificationLog  (channel + recipient + status + provider_message_id)</pre>
+
+        <div style="margin-top:20px;">
+          <h4>Key Business Rules</h4>
+          <ul>
+            <li><code>BackgroundCheck</code> has a check constraint: either <code>employee_id</code> OR <code>candidate_id</code> — never both, never neither.</li>
+            <li><code>PayrollRun.status = paid</code> is terminal — triggers document locking, no reversal path exists in code.</li>
+            <li><code>StatutoryRate.effective(kind, on_date)</code> respects company overrides before global rates.</li>
+            <li><code>LeaveRequest</code> and <code>EmployeeProfile</code> use <code>db_table</code> overrides to mirror Supabase — Django is secondary.</li>
+            <li><code>AttendanceEvent</code> is a TimescaleDB hypertable partitioned on <code>time</code> when <code>TIMESCALE_ENABLED=True</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- NAVIGATION -->
+    <section class="section" id="navigation">
+      <div class="section-header">
+        <div class="section-num">5</div>
+        <h2>Navigation Map</h2>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Employee PWA — Current Pages</div>
+        <pre style="background:#F8FAFC; color:#1A202C; border:none; padding:0; font-size:13px; line-height:1.8;">PWA (/app)
+├── /login                 OTP entry
+├── /login/verify          OTP verify
+└── /(app)/
+    ├── /home              Stats carousel · Announcements · Quick actions
+    ├── /leave             Balances (circular progress) · Request form · History
+    ├── /attendance        Face-verified check-in · GPS · Weekly history · Violation reason
+    ├── /payslip           Payslip list · Breakdown · PDF download
+    ├── /approvals         Overtime requests · Leave recalls · Manager queue
+    └── /profile           Avatar + face enrolment · Payment method · Language toggle
+
+Missing Pages (API exists, no UI):
+    ├── /notifications     NotificationLog API present — no view
+    ├── /documents         Onboarding docs / certificates — API present, no PWA view
+    ├── /performance       KPI + review data present — no employee-facing page
+    ├── /training          Training enrollments — no PWA view
+    └── /disciplinary      Employee has a right to view — not exposed</pre>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Broken / Stub Areas</div>
+        <ul>
+          <li><strong>Swahili translations:</strong> Language toggle and <code>t()</code> hook exist in Zustand + profile page, but all strings remain English — the translation strings are not populated.</li>
+          <li><strong>SmileID server-side biometrics:</strong> <code>SMILEID_DEMO_MODE=True</code> default — always returns verified. Never runs in practice unless explicitly disabled.</li>
+          <li><strong>TimescaleDB router:</strong> Exists in code, <code>TIMESCALE_ENABLED=False</code> default — standard Postgres used.</li>
+          <li><strong>Celery async:</strong> <code>CELERY_TASK_ALWAYS_EAGER=True</code> default — tasks run synchronously, blocking the request thread.</li>
+          <li><strong>HR Admin Dashboard:</strong> Entirely absent. The entire HR-facing management layer has no frontend.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- GAPS -->
+    <section class="section" id="gaps">
+      <div class="section-header">
+        <div class="section-num">6</div>
+        <h2>Feature Gap Analysis</h2>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Status</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Multi-tenancy</td><td><span class="gap-impl">Implemented</span></td><td><code>company_id</code> + <code>tenant_id</code> on all models; scoped querysets</td></tr>
+            <tr><td>RBAC</td><td><span class="gap-impl">Implemented</span></td><td>8 roles, module-level permissions, rank hierarchy, deployed scoping</td></tr>
+            <tr><td>Employee Management</td><td><span class="gap-impl">Implemented</span></td><td>Full lifecycle: hire, active, exit; statutory compliance; allowances/deductions</td></tr>
+            <tr><td>Payroll</td><td><span class="gap-impl">Implemented</span></td><td>Kenya tax engine, M-of-N approvals, 3 payment gateways, document signing</td></tr>
+            <tr><td>Leave Management</td><td><span class="gap-impl">Implemented</span></td><td>9 types, balances, approval flow, recall, one-tap</td></tr>
+            <tr><td>ATS (Applicant Tracking)</td><td><span class="gap-partial">Partially Implemented</span></td><td>Data model + public API + AI scoring; no dashboard UI, no interview scheduling</td></tr>
+            <tr><td>Candidate CRM</td><td><span class="gap-partial">Partially Implemented</span></td><td>Stage tracking, notes, AI extraction; no communication history, no kanban</td></tr>
+            <tr><td>Workflow Automation</td><td><span class="gap-partial">Partially Implemented</span></td><td>One-tap tokens, Celery beat, certificate alerts; no visual workflow builder</td></tr>
+            <tr><td>Onboarding</td><td><span class="gap-partial">Partially Implemented</span></td><td>Document tracking + summary API; no employee-facing checklist in PWA</td></tr>
+            <tr><td>Performance Management</td><td><span class="gap-partial">Partially Implemented</span></td><td>KPI + review models; no cycle automation, no UI</td></tr>
+            <tr><td>Recruitment CRM</td><td><span class="gap-missing">Missing</span></td><td>No hiring team collaboration, no job requisition approval, no recruiter inbox</td></tr>
+            <tr><td>Analytics / Reporting</td><td><span class="gap-missing">Missing</span></td><td>Zero dashboard, zero aggregate API endpoints, zero charts</td></tr>
+            <tr><td>Push Notifications</td><td><span class="gap-missing">Missing</span></td><td>PWA manifest exists; no service worker notification integration</td></tr>
+            <tr><td>Payroll Reversal</td><td><span class="gap-missing">Missing</span></td><td>No correction flow once status=paid, documents locked</td></tr>
+            <tr><td>Shift Scheduling</td><td><span class="gap-missing">Missing</span></td><td>WorkZone has work_start/end times; no shift model, no roster</td></tr>
+            <tr><td>Learning Management</td><td><span class="gap-proto">Prototype</span></td><td>Session + enrollment models only; no content, no LMS, no certificate generation</td></tr>
+            <tr><td>AI CV Matching</td><td><span class="gap-partial">Partially Implemented</span></td><td>GROQ scoring runs on apply; output not exposed in UI, no ranking interface</td></tr>
+            <tr><td>Swahili Translations</td><td><span class="gap-proto">Prototype (Broken)</span></td><td>Hook and toggle exist, translation strings not populated</td></tr>
+            <tr><td>Org Chart / Hierarchy</td><td><span class="gap-missing">Missing</span></td><td>No <code>reporting_to</code> field in EmployeeProfile</td></tr>
+            <tr><td>Asset / Equipment Tracking</td><td><span class="gap-missing">Missing</span></td><td>ExitClearance has IT section; no asset model</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MATURITY -->
+    <section class="section" id="maturity">
+      <div class="section-header">
+        <div class="section-num">7</div>
+        <h2>Business Process Maturity (0–5)</h2>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th style="width:200px;">Score</th>
+              <th>Justification</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Payroll</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:80%"></div></div>
+                  <div class="maturity-score">4/5</div>
+                </div>
+              </td>
+              <td>Kenya-compliant tax engine, M-of-N approvals, 3 gateways, DocuSeal, SHA-256 document locking, SMS notifications. Gap: reversal, bank file export.</td>
+            </tr>
+            <tr>
+              <td><strong>Core RBAC</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:80%"></div></div>
+                  <div class="maturity-score">4/5</div>
+                </div>
+              </td>
+              <td>8 hierarchical roles, module-level grants, deployed scoping, immutable audit log, one-tap tokens, OTP auth. Gap: SSO.</td>
+            </tr>
+            <tr>
+              <td><strong>Leave Management</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:60%"></div></div>
+                  <div class="maturity-score">3/5</div>
+                </div>
+              </td>
+              <td>9 types, balances, multi-channel approvals, recall flow, one-tap. Gap: overlap detection, holiday calendar, encashment on exit.</td>
+            </tr>
+            <tr>
+              <td><strong>Attendance</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:60%"></div></div>
+                  <div class="maturity-score">3/5</div>
+                </div>
+              </td>
+              <td>Geofencing (circle + polygon), face verification, TimescaleDB ready, violation tracking. Gap: shift model, reports, correction flow.</td>
+            </tr>
+            <tr>
+              <td><strong>HR Core (Lifecycle)</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:60%"></div></div>
+                  <div class="maturity-score">3/5</div>
+                </div>
+              </td>
+              <td>Full hire-to-exit coverage: disciplinary chain, exit clearance, certificates, medical, background checks, onboarding. No automation or bulk operations.</td>
+            </tr>
+            <tr>
+              <td><strong>Notifications</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:60%"></div></div>
+                  <div class="maturity-score">3/5</div>
+                </div>
+              </td>
+              <td>Template engine, 3 channels, one-tap, WhatsApp fallback, NotificationLog. Gap: push notifications, delivery tracking UI.</td>
+            </tr>
+            <tr>
+              <td><strong>Recruitment</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:40%"></div></div>
+                  <div class="maturity-score">2/5</div>
+                </div>
+              </td>
+              <td>Job postings + candidate model + AI scoring + public apply API. No ATS UI, no interview scheduling, no offer workflow, broken hire→employee handoff.</td>
+            </tr>
+            <tr>
+              <td><strong>Background Checks</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:40%"></div></div>
+                  <div class="maturity-score">2/5</div>
+                </div>
+              </td>
+              <td>DocuSeal validation letter generation, SmileID integration (demo mode). No automated provider API calls, no scheduling.</td>
+            </tr>
+            <tr>
+              <td><strong>Performance Management</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:20%"></div></div>
+                  <div class="maturity-score">1/5</div>
+                </div>
+              </td>
+              <td>KPI + review models with JSON targets/scores. No cycle management, no UI, no calibration workflow.</td>
+            </tr>
+            <tr>
+              <td><strong>Learning &amp; Development</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:20%"></div></div>
+                  <div class="maturity-score">1/5</div>
+                </div>
+              </td>
+              <td>Session + enrollment models only. No content delivery, no quizzes, no learning paths, no certificate generation.</td>
+            </tr>
+            <tr>
+              <td><strong>Analytics</strong></td>
+              <td>
+                <div class="maturity-bar-wrap">
+                  <div class="maturity-bar"><div class="maturity-fill" style="width:0%"></div></div>
+                  <div class="maturity-score">0/5</div>
+                </div>
+              </td>
+              <td>Not present. Zero aggregate endpoints, zero BI dashboard, zero charts. Critically absent for enterprise clients.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ARCHITECTURE -->
+    <section class="section" id="architecture">
+      <div class="section-header">
+        <div class="section-num">8</div>
+        <h2>Technical Architecture</h2>
+      </div>
+
+      <div class="arch-diagram">
+        <div class="arch-layer">
+          <div class="arch-label">Clients</div>
+          <div class="arch-boxes">
+            <div class="arch-box highlight">Employee PWA<br><small>Next.js 14 · App Router · Vercel</small></div>
+            <div class="arch-box">HR Dashboard<br><small>Implied — not in codebase</small></div>
+            <div class="arch-box">Django Admin<br><small>Obfuscated URL (env var)</small></div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓ HTTPS + X-Service-Key / OTP Token ↓</div>
+        <div class="arch-layer">
+          <div class="arch-label">API Layer</div>
+          <div class="arch-boxes">
+            <div class="arch-box highlight">Django 4.2 + DRF 3.14<br><small>Rate limited · drf-spectacular (OpenAPI)</small></div>
+            <div class="arch-box">RBAC Middleware<br><small>X-User-Id, X-User-Role, X-Company-Id</small></div>
+            <div class="arch-box warning">CELERY_TASK_ALWAYS_EAGER=True<br><small>Tasks block HTTP thread in prod!</small></div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓ ↓</div>
+        <div class="arch-layer">
+          <div class="arch-label">Data Layer</div>
+          <div class="arch-boxes">
+            <div class="arch-box highlight">PostgreSQL (Primary)<br><small>Supabase-hosted</small></div>
+            <div class="arch-box">TimescaleDB (Optional)<br><small>Attendance hypertable · TIMESCALE_ENABLED=False</small></div>
+            <div class="arch-box">Redis<br><small>Celery broker</small></div>
+            <div class="arch-box">Supabase S3<br><small>hr-media bucket · Payroll docs + payslips + photos</small></div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓ Async Tasks (Celery Beat) ↓</div>
+        <div class="arch-layer">
+          <div class="arch-label">Scheduled Tasks</div>
+          <div class="arch-boxes">
+            <div class="arch-box">certificate_expiry_alerts<br><small>Daily 07:00</small></div>
+            <div class="arch-box">reset_variable_allowances<br><small>1st of month 00:05</small></div>
+            <div class="arch-box">Notification delivery<br><small>Email / SMS / WhatsApp</small></div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓ External Integrations ↓</div>
+        <div class="arch-layer">
+          <div class="arch-label">Payment Gateways</div>
+          <div class="arch-boxes">
+            <div class="arch-box">Daraja B2C<br><small>M-Pesa (Safaricom)</small></div>
+            <div class="arch-box">IntaSend<br><small>M-Pesa bulk</small></div>
+            <div class="arch-box highlight">PesaPal<br><small>M-Pesa + Airtel + Bank EFT</small></div>
+          </div>
+        </div>
+        <div class="arch-layer" style="margin-top:12px;">
+          <div class="arch-label">Identity &amp; Comms</div>
+          <div class="arch-boxes">
+            <div class="arch-box">Africa's Talking<br><small>SMS + WhatsApp</small></div>
+            <div class="arch-box">DocuSeal<br><small>E-signatures · Demo mode default</small></div>
+            <div class="arch-box warning">SmileID<br><small>Biometrics · DEMO MODE DEFAULT!</small></div>
+            <div class="arch-box">GROQ (LLM)<br><small>CV scoring · llama3-70b</small></div>
+            <div class="arch-box">EmailJS<br><small>SMTP fallback (Railway)</small></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <div class="card-title"><span class="dot"></span>Frontend Stack</div>
+        <div class="label-row">
+          <span class="tag tag-blue">Next.js 14</span>
+          <span class="tag tag-blue">TypeScript</span>
+          <span class="tag tag-blue">Tailwind CSS</span>
+          <span class="tag tag-green">face-api.js (TensorFlow.js)</span>
+          <span class="tag tag-gray">Zustand</span>
+          <span class="tag tag-gray">Vaul (Drawers)</span>
+          <span class="tag tag-gray">Swiper</span>
+          <span class="tag tag-gray">anime.js</span>
+          <span class="tag tag-gray">Framer Motion</span>
+          <span class="tag tag-gray">jsPDF</span>
+          <span class="tag tag-gray">Sonner (Toasts)</span>
+          <span class="tag tag-gray">Lucide Icons</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- RISKS -->
+    <section class="section" id="risks">
+      <div class="section-header">
+        <div class="section-num">9</div>
+        <h2>Risk Assessment</h2>
+      </div>
+
+      <h3 style="color:#E11D48; margin-bottom:14px;">🔴 Critical</h3>
+      <div class="risk-grid" style="margin-bottom:24px;">
+        <div class="risk-card risk-critical">
+          <div class="risk-level">Critical</div>
+          <div class="risk-title">SmileID Demo Mode ON by Default</div>
+          <div class="risk-desc"><code>SMILEID_DEMO_MODE=True</code> — biometric verification always returns <code>{verified: True, confidence: 0.99}</code>. Anyone can clock in for anyone in production unless explicitly overridden.</div>
+        </div>
+        <div class="risk-card risk-critical">
+          <div class="risk-level">Critical</div>
+          <div class="risk-title">Celery Always-Eager in Production</div>
+          <div class="risk-desc"><code>CELERY_TASK_ALWAYS_EAGER=True</code> default — notifications, document generation, and compliance checks block the HTTP request thread. Will cause timeouts under load.</div>
+        </div>
+        <div class="risk-card risk-critical">
+          <div class="risk-level">Critical</div>
+          <div class="risk-title">RBAC_STRICT=False by Default</div>
+          <div class="risk-desc">Any caller with the service key can impersonate any user without providing role headers. All audited as <code>rbac.legacy_access</code> — masking real access patterns in the audit log.</div>
+        </div>
+        <div class="risk-card risk-critical">
+          <div class="risk-level">Critical</div>
+          <div class="risk-title">face-api.js Score Threshold Bias</div>
+          <div class="risk-desc">Default <code>scoreThreshold: 0.5</code> caused systematic false rejections for darker skin tones. Patched to 0.3 / inputSize 608 on 24 June 2026.</div>
+        </div>
+      </div>
+
+      <h3 style="color:#EA580C; margin-bottom:14px;">🟠 High</h3>
+      <div class="risk-grid" style="margin-bottom:24px;">
+        <div class="risk-card risk-high">
+          <div class="risk-level">High</div>
+          <div class="risk-title">No Payroll Reversal Path</div>
+          <div class="risk-desc">Once <code>status=paid</code>, documents are locked. A wrong disbursement requires direct database intervention. No correction workflow exists.</div>
+        </div>
+        <div class="risk-card risk-high">
+          <div class="risk-level">High</div>
+          <div class="risk-title">Recruitment → Employee Handoff is Manual</div>
+          <div class="risk-desc">A hired candidate never automatically becomes an EmployeeProfile. Data must be re-entered, introducing errors and delays in every hire.</div>
+        </div>
+        <div class="risk-card risk-high">
+          <div class="risk-level">High</div>
+          <div class="risk-title">DocuSeal Demo Mode ON by Default</div>
+          <div class="risk-desc"><code>DOCUSEAL_DEMO_MODE=True</code> default — payroll approval e-signatures return stub submissions. No real signature is captured unless explicitly enabled in production config.</div>
+        </div>
+        <div class="risk-card risk-high">
+          <div class="risk-level">High</div>
+          <div class="risk-title">Supabase Mirror Fragility</div>
+          <div class="risk-desc">LeaveRequest and EmployeeProfile are Supabase mirrors. Any Supabase schema migration silently breaks Django. No sync validation or migration guard exists.</div>
+        </div>
+      </div>
+
+      <h3 style="color:#CA8A04; margin-bottom:14px;">🟡 Medium</h3>
+      <div class="risk-grid" style="margin-bottom:24px;">
+        <div class="risk-card risk-medium">
+          <div class="risk-level">Medium</div>
+          <div class="risk-title">Swahili Feature Advertised but Broken</div>
+          <div class="risk-desc">Language toggle and <code>t()</code> hook exist; all strings remain English. The feature is visible to users but non-functional.</div>
+        </div>
+        <div class="risk-card risk-medium">
+          <div class="risk-level">Medium</div>
+          <div class="risk-title">Client-Side jsPDF Payslip</div>
+          <div class="risk-desc">Payslip PDF generated in browser. Fails silently on weak devices. Server-side ReportLab generation already exists — this is redundant and unreliable.</div>
+        </div>
+        <div class="risk-card risk-medium">
+          <div class="risk-level">Medium</div>
+          <div class="risk-title">S3 Credential Exposure Risk</div>
+          <div class="risk-desc">Supabase S3 keys in environment variables. Download endpoint lacks presigned URL pattern — if keys leak, entire hr-media bucket is accessible.</div>
+        </div>
+        <div class="risk-card risk-medium">
+          <div class="risk-level">Medium</div>
+          <div class="risk-title">PesaPal Sandbox Default</div>
+          <div class="risk-desc"><code>PESAPAL_SANDBOX=True</code> by default. A production deployment with this unset sends money to a test environment silently.</div>
+        </div>
+      </div>
+
+      <h3 style="color:#16A34A; margin-bottom:14px;">🟢 Low</h3>
+      <div class="risk-grid">
+        <div class="risk-card risk-low">
+          <div class="risk-level">Low</div>
+          <div class="risk-title">GROQ Model Hardcoded</div>
+          <div class="risk-desc"><code>llama3-70b-8192</code> — if deprecated by Groq, CV scoring silently fails with no fallback.</div>
+        </div>
+        <div class="risk-card risk-low">
+          <div class="risk-level">Low</div>
+          <div class="risk-title">Django Admin Without MFA</div>
+          <div class="risk-desc">Admin URL obfuscated via env var (good). Still uses session auth without MFA — one credential leak = full admin access.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section class="section" id="roadmap">
+      <div class="section-header">
+        <div class="section-num">10</div>
+        <h2>Product Roadmap</h2>
+      </div>
+
+      <div class="card" style="margin-bottom:28px;">
+        <div class="card-title"><span class="dot"></span>Current Stage: Funded MVP / Early Commercial</div>
+        <p style="font-size:14px; color:#374151;">The backend is production-grade for payroll and leave. The PWA is polished for employee self-service. The gap is entirely on the HR-admin-facing side — there is no dashboard. An HR manager cannot run day-to-day operations without opening the Django admin or calling the API directly. The HR admin dashboard is the unlock that makes every other module's backend investment usable.</p>
+      </div>
+
+      <div class="roadmap-grid">
+        <div class="roadmap-col roadmap-30">
+          <div class="roadmap-header">30-Day · "Make It Operable"</div>
+          <div class="roadmap-items">
+            <div class="roadmap-item">
+              <div class="num">1</div>
+              <div><div class="text">Fix production defaults</div><div class="sub">SmileID + DocuSeal + Celery eager mode</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">2</div>
+              <div><div class="text">HR Admin: Employee list + profile</div><div class="sub">View/edit employees without Django admin</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">3</div>
+              <div><div class="text">HR Admin: Leave approval queue</div><div class="sub">The #1 daily HR task</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">4</div>
+              <div><div class="text">HR Admin: Payroll run management</div><div class="sub">Submit, track approvals, trigger disbursement</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">5</div>
+              <div><div class="text">Fix hire → EmployeeProfile handoff</div><div class="sub">Hired candidate auto-creates employee record</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">6</div>
+              <div><div class="text">Flip RBAC_STRICT=True in prod</div><div class="sub">Stop legacy-access audit noise</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="roadmap-col roadmap-90">
+          <div class="roadmap-header">90-Day · "Make It Sellable"</div>
+          <div class="roadmap-items">
+            <div class="roadmap-item">
+              <div class="num">1</div>
+              <div><div class="text">Full HR Admin Dashboard</div><div class="sub">Employee CRUD, leave, overtime, attendance, compliance alerts</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">2</div>
+              <div><div class="text">ATS Pipeline Kanban UI</div><div class="sub">Drag-and-drop stages, AI score display</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">3</div>
+              <div><div class="text">Interview Scheduling</div><div class="sub">Interview model + calendar invite generation</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">4</div>
+              <div><div class="text">Basic Analytics Dashboard</div><div class="sub">Headcount, payroll cost, attendance rates — 5 core charts</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">5</div>
+              <div><div class="text">Offer Letter Generation</div><div class="sub">DocuSeal template → candidate e-signature → hired</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">6</div>
+              <div><div class="text">Onboarding Checklist in PWA</div><div class="sub">Employee-facing doc upload with progress tracking</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">7</div>
+              <div><div class="text">Swahili Translations</div><div class="sub">Populate t() strings — key differentiator for field workers</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">8</div>
+              <div><div class="text">Push Notifications (PWA)</div><div class="sub">Service worker for check-in reminders + leave alerts</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="roadmap-col roadmap-12m">
+          <div class="roadmap-header">12-Month · "Make It Enterprise"</div>
+          <div class="roadmap-items">
+            <div class="roadmap-item">
+              <div class="num">Q3</div>
+              <div><div class="text">Analytics &amp; BI Reporting</div><div class="sub">Custom report builder, scheduled exports, heatmaps</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q3</div>
+              <div><div class="text">Performance Review Cycles</div><div class="sub">Automated cycles, self-assessment, 360 feedback, calibration</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q4</div>
+              <div><div class="text">Shift Scheduling</div><div class="sub">Roster builder, shift templates, coverage view</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q4</div>
+              <div><div class="text">Basic LMS</div><div class="sub">Course creation, completion tracking, certificate generation</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q4</div>
+              <div><div class="text">Payroll Compliance Hardening</div><div class="sub">P9 forms, bank bulk export, pension integration (Zamara/Britam)</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q1</div>
+              <div><div class="text">Multi-Country Expansion</div><div class="sub">Uganda + Tanzania statutory rates (versioning already supports this)</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q1</div>
+              <div><div class="text">AI Layer</div><div class="sub">CV ranking, attrition risk scoring, anomalous attendance flagging</div></div>
+            </div>
+            <div class="roadmap-item">
+              <div class="num">Q2</div>
+              <div><div class="text">Enterprise Features</div><div class="sub">SSO/SAML, API webhooks, white-label theming, advanced RBAC delegation</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MOATS -->
+    <section class="section" id="moats">
+      <div class="section-header">
+        <div class="section-num">★</div>
+        <h2>Competitive Moats</h2>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title"><span class="dot"></span>Three things that are genuinely impressive and must be protected</div>
+      </div>
+
+      <div class="moat-grid">
+        <div class="moat-card">
+          <div class="moat-num">01</div>
+          <div class="moat-title">M-of-N Payroll Approval Workflow</div>
+          <div class="moat-desc">Multi-approver quorum with DocuSeal + one-tap + dashboard converging to the same approval records. More sophisticated than anything in the Kenya SME space. Expensive to replicate.</div>
+        </div>
+        <div class="moat-card">
+          <div class="moat-num">02</div>
+          <div class="moat-title">Statutory Compliance Depth</div>
+          <div class="moat-desc">Versioned statutory rates, minimum wage monitoring, exit clearance with 5 department sign-offs, disciplinary escalation chains. This is the hardest part of Kenya HR to get right — and it's done.</div>
+        </div>
+        <div class="moat-card">
+          <div class="moat-num">03</div>
+          <div class="moat-title">Payment Gateway Redundancy</div>
+          <div class="moat-desc">Three independent disbursement paths (Daraja, IntaSend, PesaPal) covering M-Pesa, Airtel Money, and Bank EFT. Payroll disbursement never fails due to a single provider outage.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px; background: linear-gradient(135deg, #F8FAFC, #FFFFFF);">
+        <div class="card-title"><span class="dot"></span>The Single Biggest Gap</div>
+        <p style="font-size:15px; font-weight:600; color:var(--brand);">The absence of an HR-admin-facing interface is not a feature gap — it is a distribution gap. Every module's backend investment is locked behind a raw API. Fix that first. Everything else follows.</p>
+      </div>
+
+    </section>
+
+  </div>
+</div>
+
+<script>
+  // Smooth scroll for sidebar links
+  document.querySelectorAll('.sidebar a').forEach(link => {
+    link.addEventListener('click', e => {
+      const href = link.getAttribute('href')
+      if (href && href.startsWith('#')) {
+        e.preventDefault()
+        const el = document.querySelector(href)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    })
+  })
+
+  // Active sidebar highlight
+  const sections = document.querySelectorAll('.section')
+  const navLinks = document.querySelectorAll('.sidebar a')
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.style.borderLeftColor = 'transparent')
+        const active = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`)
+        if (active) {
+          active.style.color = '#fff'
+          active.style.borderLeftColor = '#C9A84C'
+        }
+      }
+    })
+  }, { rootMargin: '-20% 0px -70% 0px' })
+
+  sections.forEach(s => observer.observe(s))
+</script>
+
+</body>
+</html>

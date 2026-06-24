@@ -29,6 +29,13 @@ INSTALLED_APPS = [
     'apps.hr',
     'apps.attendance',
     'apps.recruitment',
+    'apps.actions',
+    'apps.workflows',
+    'apps.crm',
+    'apps.matching',
+    'apps.analytics',
+    'apps.lms',
+    'apps.performance',
     'storages',
 ]
 
@@ -187,6 +194,30 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
     'SCHEMA_PATH_PREFIX': '/api/',
 }
+
+# Cache — Redis when REDIS_CACHE_URL or CELERY_BROKER_URL resolves to a redis:// URL.
+# Falls back to LocMemCache so dev environments work without Redis.
+_REDIS_CACHE_URL = (
+    config('REDIS_CACHE_URL', default='')
+    or config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+)
+if _REDIS_CACHE_URL.startswith('redis'):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_CACHE_URL,
+            'OPTIONS': {'socket_timeout': 1, 'socket_connect_timeout': 1},
+            'TIMEOUT': 300,
+            'KEY_PREFIX': 'hrapi',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'TIMEOUT': 300,
+        }
+    }
 
 # Service key for dashboard API calls (set in environment)
 HR_SERVICE_KEY = config('HR_SERVICE_KEY')

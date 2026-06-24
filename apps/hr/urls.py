@@ -1,6 +1,8 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .analytics import WorkforceAnalyticsView
+from .dashboard import DashboardSummaryView
 from .views import (AllowanceTypeViewSet, AnnouncementViewSet,
                     BackgroundCheckViewSet, ComplianceAlertViewSet,
                     DeductionTypeViewSet, DisciplinaryRecordViewSet,
@@ -42,6 +44,10 @@ router.register('training-enrollments', TrainingEnrollmentViewSet, basename='tra
 router.register('onboarding-documents', EmployeeOnboardingDocumentViewSet, basename='onboarding-documents')
 
 urlpatterns = router.urls + [
+    # ── Dashboard & Analytics (read-only aggregates) ───────────────────────
+    path('dashboard/summary/', DashboardSummaryView.as_view(), name='dashboard-summary'),
+    path('analytics/workforce/', WorkforceAnalyticsView.as_view(), name='analytics-workforce'),
+    # ── Existing paths ─────────────────────────────────────────────────────
     path('onboarding/summary/', OnboardingSummaryView.as_view(), name='onboarding-summary'),
     path('exits/<uuid:exit_pk>/clearance/', ExitClearanceViewSet.as_view({
         'get': 'list', 'post': 'create',

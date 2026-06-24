@@ -84,6 +84,55 @@ DEFAULT_TEMPLATES = {
         'subject': '{document_title} from {company_name}',
         'body': '{message}\n\nThis document was shared with you via Sheer Logic HR.',
     },
+    'interview.scheduled': {
+        'subject': 'Interview scheduled: {interview_type} on {scheduled_at}',
+        'body': (
+            'Hi,\n\n'
+            'An interview has been confirmed for {candidate_name}.\n\n'
+            'Role: {job_title}\n'
+            'Interview type: {interview_type}\n'
+            'Date/Time: {scheduled_at}\n'
+            'Location: {location}\n\n'
+            'Please ensure you are available at the scheduled time.\n\n'
+            'Sheer Logic HR'
+        ),
+    },
+    'employee.welcome': {
+        'subject': 'Welcome to {company_name} — your HR account is ready',
+        'body': (
+            'Hi {full_name},\n\n'
+            'Your employee account has been created.\n\n'
+            'Employee Number: {employee_number}\n'
+            'Job Title: {job_title}\n'
+            'Start Date: {start_date}\n\n'
+            'You can log in to the HR portal using this email address. '
+            'A one-time passcode will be sent to you on your first login.\n\n'
+            'If you have any questions, please contact your HR administrator.\n\n'
+            'Sheer Logic HR'
+        ),
+    },
+    'action.escalated': {
+        'subject': 'Action escalated at {company_name}',
+        'body': (
+            'An action has been escalated and requires your attention.\n\n'
+            'Action: {action_id}\n'
+            'Company: {company_name}\n'
+            'Note: {note}\n\n'
+            'Please log in to the HR portal to review and resolve this action.\n\n'
+            'Sheer Logic HR'
+        ),
+    },
+    'action.critical': {
+        'subject': 'Critical action alert: {action_type} at {company_name}',
+        'body': (
+            'A critical action has been detected that requires immediate attention.\n\n'
+            'Action Type: {action_type}\n'
+            'Company: {company_name}\n'
+            'Details: {description}\n\n'
+            'Please log in to the HR portal immediately to review.\n\n'
+            'Sheer Logic HR'
+        ),
+    },
 }
 
 

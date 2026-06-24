@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Candidate, JobAlert, JobAlertLog, JobPosting
+from .models import Candidate, Interview, JobAlert, JobAlertLog, JobPosting
 
 
 class JobPostingSerializer(serializers.ModelSerializer):
@@ -52,3 +52,32 @@ class JobAlertLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobAlertLog
         fields = '__all__'
+
+
+class InterviewSerializer(serializers.ModelSerializer):
+    candidate_name = serializers.CharField(source='candidate.full_name', read_only=True)
+    job_posting_title = serializers.CharField(source='job_posting.title', read_only=True)
+    feedback_score = serializers.IntegerField(
+        min_value=1, max_value=10, required=False, allow_null=True,
+    )
+
+    class Meta:
+        model = Interview
+        fields = '__all__'
+        read_only_fields = ['completed_at', 'cancelled_at']
+
+
+class ConvertCandidateSerializer(serializers.Serializer):
+    """Payload required to convert a hired candidate into an EmployeeProfile."""
+    job_title = serializers.CharField(max_length=255)
+    department = serializers.CharField(max_length=120, required=False, allow_blank=True, default='')
+    employment_type = serializers.ChoiceField(
+        choices=['full_time', 'part_time', 'contract', 'intern'], default='full_time'
+    )
+    worker_class = serializers.ChoiceField(
+        choices=['white_collar', 'blue_collar'], default='white_collar'
+    )
+    salary = serializers.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = serializers.ChoiceField(choices=['bank', 'mpesa', 'airtel'])
+    start_date = serializers.DateField()
+    employee_number = serializers.CharField(max_length=50, required=False, allow_blank=True)

@@ -30,6 +30,13 @@ urlpatterns = [
     path('api/', include('apps.hr.urls')),
     path('api/', include('apps.attendance.urls')),
     path('api/', include('apps.recruitment.urls')),
+    path('api/', include('apps.actions.urls')),
+    path('api/', include('apps.workflows.urls')),
+    path('api/', include('apps.crm.urls')),
+    path('api/', include('apps.matching.urls')),
+    path('api/', include('apps.analytics.urls')),
+    path('api/', include('apps.lms.urls')),
+    path('api/', include('apps.performance.urls')),
     # OpenAPI / Swagger documentation (authenticated — not public)
     path('api/schema/', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[IsAuthenticated]),

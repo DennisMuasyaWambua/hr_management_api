@@ -13,7 +13,8 @@ MODULES = ['payroll', 'allowances', 'overtime', 'reimbursements',
            'attendance', 'geofence', 'notifications', 'rbac', 'audit', 'share',
            'compliance', 'background_checks',
            'announcements', 'recruitment', 'medical', 'performance', 'training',
-           'onboarding']
+           'onboarding', 'actions', 'workflows', 'talent_pools', 'referrals', 'crm',
+           'matching', 'analytics', 'lms', 'performance']
 
 # Strict role chain (lower rank = more authority):
 #   super_admin > company_admin > internal_hr > deployed_hr
@@ -52,11 +53,21 @@ _HR_GRANTS = ['payroll.view', 'payroll.manage', 'allowances.view', 'allowances.m
               'medical.view', 'medical.manage',
               'performance.view', 'performance.manage',
               'training.view', 'training.manage',
-              'onboarding.view', 'onboarding.manage']
+              'onboarding.view', 'onboarding.manage',
+              'actions.view', 'actions.manage',
+              'workflows.view', 'workflows.manage',
+              'talent_pools.view', 'talent_pools.manage',
+              'referrals.view', 'referrals.manage',
+              'crm.view', 'crm.manage',
+              'matching.view', 'matching.manage',
+              'analytics.view', 'analytics.manage',
+              'lms.view', 'lms.manage',
+              'performance.view', 'performance.manage']
 _MANAGER_GRANTS = ['leave.view', 'leave.manage', 'overtime.view', 'overtime.manage',
-                   'attendance.view', 'announcements.view', 'recruitment.view']
+                   'attendance.view', 'announcements.view', 'recruitment.view',
+                   'lms.view', 'performance.view']
 _EMPLOYEE_GRANTS = ['leave.view', 'overtime.view', 'reimbursements.view',
-                    'attendance.view']
+                    'attendance.view', 'lms.view', 'performance.view']
 
 DEFAULT_GRANTS = {
     'super_admin': ['*'],
