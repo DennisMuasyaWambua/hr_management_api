@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'apps.hr',
     'apps.attendance',
     'apps.recruitment',
+    'apps.rbac',
     'storages',
 ]
 
