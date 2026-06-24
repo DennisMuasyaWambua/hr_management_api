@@ -42,7 +42,13 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.rbac.middleware.RBACContextMiddleware',
 ]
+
+# Part B1 — when True, HasRBACPermission denies on missing permission. Kept
+# False by default so legacy routes that haven't declared requirements keep
+# working; the new RBAC endpoints declare and enforce their own requirements.
+RBAC_ENFORCE = config('RBAC_ENFORCE', default=False, cast=bool)
 
 ROOT_URLCONF = 'hr_api.urls'
 
