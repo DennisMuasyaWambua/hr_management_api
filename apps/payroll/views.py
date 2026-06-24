@@ -826,28 +826,36 @@ class EmployeePayrollStatusViewSet(viewsets.GenericViewSet):
         if company_id:
             employees = employees.filter(company_id=company_id)
 
-        # Get current period payroll run
-        payroll_run = PayrollRun.objects.filter(
+        # Get ALL payroll runs for the current period (payroll can be batched —
+        # several runs per period pay different groups of employees).
+        period_runs = PayrollRun.objects.filter(
             period_month=current_month,
             period_year=current_year,
             is_deleted=False
         )
         if company_id:
-            payroll_run = payroll_run.filter(company_id=company_id)
-        payroll_run = payroll_run.order_by('-created_at').first()
+            period_runs = period_runs.filter(company_id=company_id)
 
-        # Build payment status map from payroll records
+        # Build payment status map aggregated across every run for the period.
+        # An employee counts as 'paid' if ANY of the period's runs paid them.
         payment_status_map = {}
-        if payroll_run:
-            records = PayrollRecord.objects.filter(
-                payroll_run=payroll_run,
-                is_deleted=False
-            ).values('employee_id', 'payment_status', 'paid_at')
+        records = PayrollRecord.objects.filter(
+            payroll_run__in=period_runs,
+            is_deleted=False
+        ).values('employee_id', 'payment_status', 'paid_at')
 
-            for record in records:
-                payment_status_map[str(record['employee_id'])] = {
+        for record in records:
+            eid = str(record['employee_id'])
+            existing = payment_status_map.get(eid)
+            if existing is None:
+                payment_status_map[eid] = {
                     'status': record['payment_status'],
-                    'paid_at': record['paid_at']
+                    'paid_at': record['paid_at'],
+                }
+            elif existing['status'] != 'paid' and record['payment_status'] == 'paid':
+                payment_status_map[eid] = {
+                    'status': 'paid',
+                    'paid_at': record['paid_at'],
                 }
 
         # Resolve employee names from the users (AppUser) table. Names link to

@@ -222,16 +222,20 @@ class PayrollRunCreateSerializer(serializers.ModelSerializer):
         company_id = self.context.get('company_id')
 
         if company_id:
-            existing = PayrollRun.objects.filter(
+            # Allow batched payroll: a period may hold several runs as long as
+            # there's no OPEN (non-terminal) one. Terminal runs (paid/completed)
+            # are followed by a fresh run to pay employees who weren't in the
+            # earlier batch. An open run must be reused, not duplicated.
+            open_exists = PayrollRun.objects.filter(
                 company_id=company_id,
                 period_month=data['period_month'],
                 period_year=data['period_year'],
                 is_deleted=False
-            ).exists()
+            ).exclude(status__in=['paid', 'completed']).exists()
 
-            if existing:
+            if open_exists:
                 raise serializers.ValidationError(
-                    f"A payroll run already exists for {data['period_month']}/{data['period_year']}"
+                    f"An open payroll run already exists for {data['period_month']}/{data['period_year']}"
                 )
 
         return data
